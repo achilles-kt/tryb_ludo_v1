@@ -1,3 +1,4 @@
+// lib/screens/lobby_screen.dart
 import 'package:flutter/material.dart';
 import '../constants.dart';
 import '../widgets/table_card.dart';
@@ -17,14 +18,13 @@ class _LobbyScreenState extends State<LobbyScreen>
   bool playSheetOpen = false;
   bool bgChatVisible = true;
 
-  // small controller to animate floating chat messages
   late AnimationController _bgController;
 
   @override
   void initState() {
     super.initState();
     _bgController =
-        AnimationController(vsync: this, duration: Duration(seconds: 8))
+        AnimationController(vsync: this, duration: const Duration(seconds: 8))
           ..repeat();
   }
 
@@ -37,21 +37,19 @@ class _LobbyScreenState extends State<LobbyScreen>
   void openPlaySheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Color(0xFF14161b),
-      shape: RoundedRectangleBorder(
+      backgroundColor: const Color(0xFF14161b),
+      shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       isScrollControlled: true,
       builder: (_) => PlayOptionsSheet(onSelect: (mode) {
         Navigator.of(context).pop();
-        // Open Pay modal as per prototype
         showDialog(
             context: context,
             builder: (_) => PayModal(
                 entryText: mode == '2p' ? '500 Gold' : '2.5k Gold',
                 onJoin: () {
                   Navigator.of(context).pop();
-                  // For demo: navigate to game screen with dummy id
                   Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => GameScreen(gameId: 'demo-game')));
                 }));
@@ -63,7 +61,6 @@ class _LobbyScreenState extends State<LobbyScreen>
   Widget build(BuildContext context) {
     final w = MediaQuery.of(context).size.width;
     final appWidth = w > 420 ? 390.0 : w;
-
     return Scaffold(
       backgroundColor: AppColors.bgDark,
       body: Center(
@@ -81,24 +78,21 @@ class _LobbyScreenState extends State<LobbyScreen>
           ),
           child: Stack(
             children: [
-              // BG Chat Layer (floating faded messages)
               Positioned.fill(child: _buildBgChat()),
-              // content
               Column(
                 children: [
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   _topBar(),
                   Expanded(child: _lobbyContent()),
                 ],
               ),
-              // Play button fixed
               Positioned(
                   bottom: 120,
                   left: 0,
                   right: 0,
                   child: Center(child: _playBtn())),
-              // bottom pill
-              Positioned(bottom: 0, left: 0, right: 0, child: BottomChatPill()),
+              const Positioned(
+                  bottom: 0, left: 0, right: 0, child: BottomChatPill()),
             ],
           ),
         ),
@@ -107,7 +101,6 @@ class _LobbyScreenState extends State<LobbyScreen>
   }
 
   Widget _buildBgChat() {
-    // three floating messages; use animated builder to float up
     return IgnorePointer(
       child: Stack(
         children: [
@@ -155,7 +148,7 @@ class _LobbyScreenState extends State<LobbyScreen>
           child: Opacity(
             opacity: opacity.clamp(0.0, 1.0),
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(20)),
@@ -163,9 +156,10 @@ class _LobbyScreenState extends State<LobbyScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircleAvatar(radius: 9, backgroundImage: AssetImage(avatar)),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Text(text,
-                      style: TextStyle(fontSize: 11, color: Colors.white70)),
+                      style:
+                          const TextStyle(fontSize: 11, color: Colors.white70)),
                 ],
               ),
             ),
@@ -177,7 +171,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   Widget _topBar() {
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -197,7 +191,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                         gradient: AppColors.primaryGrad,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2)),
-                    child: Center(
+                    child: const Center(
                         child: Text('12',
                             style: TextStyle(
                                 fontSize: 10,
@@ -205,17 +199,21 @@ class _LobbyScreenState extends State<LobbyScreen>
                                 color: Colors.white))),
                   ))
             ]),
-            SizedBox(width: 12),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Alex',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-              Text('Mumbai, India',
-                  style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
-            ])
+            const SizedBox(width: 12),
+            Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Alex',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                  SizedBox(height: 2),
+                  Text('Mumbai, India',
+                      style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
+                ])
           ]),
           Row(children: [
             _currencyPill(icon: Icons.games, value: '450'),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             _currencyPill(icon: Icons.insights, value: '24k'),
           ])
         ],
@@ -225,44 +223,43 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   Widget _currencyPill({required IconData icon, required String value}) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
           color: Colors.black.withOpacity(0.6),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: AppColors.glassBorder)),
       child: Row(children: [
         Icon(icon, size: 16, color: AppColors.neonBlue),
-        SizedBox(width: 6),
+        const SizedBox(width: 6),
         Text(value,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-        SizedBox(width: 6),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+        const SizedBox(width: 6),
         Container(
             width: 18,
             height: 18,
             decoration: BoxDecoration(
                 gradient: AppColors.primaryGrad, shape: BoxShape.circle),
-            child: Icon(Icons.add, size: 12, color: Colors.white))
+            child: const Icon(Icons.add, size: 12, color: Colors.white))
       ]),
     );
   }
 
   Widget _lobbyContent() {
     return Padding(
-      padding: EdgeInsets.only(top: 8, left: 16, right: 16, bottom: 16),
+      padding: const EdgeInsets.only(top: 8, left: 16, right: 16, bottom: 16),
       child: Column(
         children: [
           _clubHeader(),
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
           Expanded(
             child: ListView(
-              padding: EdgeInsets.only(bottom: 160),
+              padding: const EdgeInsets.only(bottom: 160),
               children: [
                 TableCard(
                     mode: '2P',
                     winText: 'WIN 900 GOLD',
                     entry: 'Entry: 500 Gold',
                     onTap: () {
-                      // open pay modal
                       showDialog(
                           context: context,
                           builder: (_) => PayModal(
@@ -274,7 +271,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                         GameScreen(gameId: 'demo-game')));
                               }));
                     }),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 TableCard(
                     mode: 'TEAM',
                     winText: 'WIN 5K GOLD',
@@ -291,7 +288,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                         GameScreen(gameId: 'demo-team')));
                               }));
                     }),
-                SizedBox(height: 12),
+                const SizedBox(height: 12),
                 TableCard(
                     mode: '2P',
                     winText: 'WIN 100 GEMS',
@@ -305,8 +302,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                 Navigator.of(context).pop();
                               }));
                     }),
-                SizedBox(height: 12),
-                // more cards...
+                const SizedBox(height: 12),
                 TableCard(
                     mode: '2P',
                     winText: 'WIN 200 GOLD',
@@ -320,7 +316,7 @@ class _LobbyScreenState extends State<LobbyScreen>
                                 Navigator.of(context).pop();
                               }));
                     }),
-                SizedBox(height: 50),
+                const SizedBox(height: 50),
               ],
             ),
           )
@@ -342,21 +338,50 @@ class _LobbyScreenState extends State<LobbyScreen>
               BoxShadow(
                   color: AppColors.neonPurple.withOpacity(0.28),
                   blurRadius: 40,
-                  offset: Offset(0, 10))
+                  offset: const Offset(0, 10))
             ],
             border:
                 Border.all(color: Colors.white.withOpacity(0.12), width: 3)),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(Icons.play_arrow, color: Colors.white, size: 32),
-          SizedBox(height: 4),
-          Text('PLAY',
-              style: TextStyle(
-                  fontFamily: 'Poppins',
-                  fontWeight: FontWeight.w800,
-                  fontSize: 10,
-                  color: Colors.white))
-        ]),
+        child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.play_arrow, color: Colors.white, size: 32),
+              SizedBox(height: 4),
+              Text('PLAY',
+                  style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                      color: Colors.white))
+            ]),
       ),
+    );
+  }
+
+  // <-- NEW: club header implementation (was missing)
+  Widget _clubHeader() {
+    return Column(
+      children: [
+        Text('High Rollers',
+            style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Colors.white)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+              color: Colors.white10, borderRadius: BorderRadius.circular(12)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: const [
+            SizedBox(width: 6),
+            CircleAvatar(radius: 3, backgroundColor: Color(0xFF22C55E)),
+            SizedBox(width: 8),
+            Text('425 Online',
+                style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          ]),
+        ),
+      ],
     );
   }
 }
