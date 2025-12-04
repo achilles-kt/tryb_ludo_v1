@@ -1,0 +1,57 @@
+{
+    "rules": {
+        "users": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
+                ".write": "$uid === auth.uid",
+                "gold": {
+                    ".read": "$uid === auth.uid",
+                    ".write": "false"
+                },
+                "currentGameId": {
+                    ".read": "$uid === auth.uid",
+                    ".write": "$uid === auth.uid"
+                },
+                "currentTableId": {
+                    ".read": "$uid === auth.uid",
+                    ".write": "$uid === auth.uid"
+                }
+            }
+        },
+        "walletHistory": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
+                ".write": "false"
+            }
+        },
+        "queue": {
+            "2p": {
+                ".indexOn": [
+                    "ts"
+                ],
+                "$pushId": {
+                    ".write": "auth != null && newData.child('uid').val() === auth.uid",
+                    ".read": "auth != null"
+                }
+            }
+        },
+        "userQueueStatus": {
+            "$uid": {
+                ".read": "auth != null && auth.uid === $uid",
+                ".write": "auth != null && auth.uid === $uid"
+            }
+        },
+        "tables": {
+            "$tableId": {
+                ".read": "auth != null && data.child('players').hasChild(auth.uid)",
+                ".write": "auth.token.admin === true"
+            }
+        },
+        "games": {
+            "$gameId": {
+                ".read": "auth != null && data.child('players').hasChild(auth.uid)",
+                ".write": "false"
+            }
+        }
+    }
+}

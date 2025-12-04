@@ -1,108 +1,97 @@
 import 'package:flutter/material.dart';
-import '../constants.dart';
+import 'package:flame/game.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../game/ludo_game.dart';
+import '../widgets/game/game_top_bar.dart';
+import '../widgets/game/game_chat_pill.dart';
+import '../widgets/game/dice_overlay.dart';
+import '../widgets/game/players_overlay.dart';
+import '../widgets/game/end_game_overlay.dart';
 
-class GameScreen extends StatelessWidget {
+class GameScreen extends StatefulWidget {
   final String gameId;
-  GameScreen({required this.gameId});
+  final String tableId;
+
+  const GameScreen({
+    super.key,
+    required this.gameId,
+    required this.tableId,
+  });
+
+  @override
+  State<GameScreen> createState() => _GameScreenState();
+}
+
+class _GameScreenState extends State<GameScreen> {
+  late final LudoGame _game;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    _game = LudoGame(
+      gameId: widget.gameId,
+      tableId: widget.tableId,
+      localUid: uid,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgDark,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Center(child: _boardContainer()),
-            Positioned(
-                left: 16,
-                top: 20,
-                child: _playerSpot('You', 'assets/avatars/a1.png')),
-            Positioned(
-                right: 16,
-                top: 20,
-                child: _playerSpot('Marcus', 'assets/avatars/a2.png')),
-            Positioned(
-                left: 16,
-                bottom: 120,
-                child: _playerSpot('Opp1', 'assets/avatars/a3.png')),
-            Positioned(
-                right: 16,
-                bottom: 120,
-                child: _playerSpot('Opp2', 'assets/avatars/a4.png')),
-            Positioned(
-                bottom: 40,
-                left: MediaQuery.of(context).size.width / 2 - 35,
-                child: FloatingActionButton(
-                    onPressed: () {}, child: Icon(Icons.casino))),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _boardContainer() {
-    return Container(
-      width: 340,
-      height: 340,
-      decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white12)),
-      child: Stack(
+      backgroundColor: Colors.black,
+      body: Stack(
         children: [
-          // four corner homes
+          // 1) Top bar (like HTML top-bar)
           Positioned(
-              left: 8, top: 8, child: _homeBox(color: AppColors.neonRed)),
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(child: GameTopBar(game: _game)),
+          ),
+
+          // 2) Game area
+          Positioned.fill(
+            top: 60, // leave space for top bar
+            bottom: 80, // leave space for bottom chat pill
+            child: Center(
+              child: GameWidget(
+                game: _game,
+                overlayBuilderMap: {
+                  'diceOverlay': (ctx, game) =>
+                      DiceOverlay(game: game as LudoGame),
+                  'playersOverlay': (ctx, game) =>
+                      PlayersOverlay(game: game as LudoGame),
+                  'endOverlay': (ctx, game) =>
+                      EndGameOverlay(game: game as LudoGame),
+                },
+                initialActiveOverlays: const [
+                  'diceOverlay',
+                  'playersOverlay',
+                  'endOverlay',
+                ],
+              ),
+            ),
+          ),
+
+          // 3) Bottom chat pill (shared with lobby)
           Positioned(
-              right: 8, top: 8, child: _homeBox(color: AppColors.neonYellow)),
-          Positioned(
-              left: 8, bottom: 8, child: _homeBox(color: AppColors.neonGreen)),
-          Positioned(
-              right: 8, bottom: 8, child: _homeBox(color: AppColors.neonBlue)),
-          // center box
-          Center(
-              child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(10)))),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: SafeArea(child: GameChatPill(game: _game)),
+          ),
         ],
       ),
     );
   }
 
-  Widget _homeBox({required Color color}) {
-    return Container(
-        width: 120,
-        height: 120,
-        decoration: BoxDecoration(
-            color: color.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withOpacity(0.2))),
-        child: Padding(
-            padding: EdgeInsets.all(10),
-            child: GridView.count(
-                crossAxisCount: 2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                children: List.generate(
-                    4,
-                    (i) => Container(
-                        decoration: BoxDecoration(
-                            color: color, shape: BoxShape.circle))))));
-  }
-
-  Widget _playerSpot(String name, String avatar) {
-    return Row(children: [
-      CircleAvatar(radius: 28, backgroundImage: AssetImage(avatar)),
-      SizedBox(width: 8),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(name, style: TextStyle(fontWeight: FontWeight.w700)),
-        SizedBox(height: 4),
-        Text('Level 12',
-            style: TextStyle(fontSize: 12, color: AppColors.textMuted))
-      ])
-    ]);
+  @override
+  void dispose() {
+    // _game.onRemove(); // Flame handles this? Or we should call it?
+    // Usually GameWidget handles game lifecycle, but we can manually clean up if needed.
+    // LudoGame.onRemove is called by Flame when the game is removed from the widget tree.
+    super.dispose();
   }
 }

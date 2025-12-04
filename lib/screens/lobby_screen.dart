@@ -6,6 +6,7 @@ import '../widgets/bottom_chat_pill.dart';
 import '../widgets/play_sheet.dart';
 import '../widgets/pay_modal.dart';
 import 'game_screen.dart';
+import '../widgets/waiting_match_modal.dart';
 
 class LobbyScreen extends StatefulWidget {
   const LobbyScreen({Key? key}) : super(key: key);
@@ -42,17 +43,78 @@ class _LobbyScreenState extends State<LobbyScreen>
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       isScrollControlled: true,
-      builder: (_) => PlayOptionsSheet(onSelect: (mode) {
+      builder: (_) => PlayOptionsSheet(onSelect: (mode) async {
         Navigator.of(context).pop();
-        showDialog(
+
+        if (mode == '2p') {
+          showDialog(
             context: context,
             builder: (_) => PayModal(
-                entryText: mode == '2p' ? '500 Gold' : '2.5k Gold',
-                onJoin: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => GameScreen(gameId: 'demo-game')));
-                }));
+              entryText: '500 Gold',
+              onJoin: () async {
+                Navigator.of(context).pop(); // Close PayModal
+                // Show matchmaking modal
+                final result = await showModalBottomSheet<Map<String, dynamic>>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) =>
+                      WaitingMatchModal(entryFee: 500, mockMode: false),
+                );
+
+                // Navigate to game if matched
+                if (result != null) {
+                  final gameId = result['gameId'] as String?;
+                  final tableId = result['tableId'] as String?;
+
+                  if (gameId != null && tableId != null && mounted) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => GameScreen(
+                          gameId: gameId,
+                          tableId: tableId,
+                        ),
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+          );
+        } else if (mode == 'team') {
+          showDialog(
+              context: context,
+              builder: (_) => PayModal(
+                  entryText: '2.5k Gold',
+                  onJoin: () async {
+                    Navigator.of(context).pop();
+
+                    final result =
+                        await showModalBottomSheet<Map<String, dynamic>>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (_) =>
+                          WaitingMatchModal(entryFee: 2500, mockMode: false),
+                    );
+
+                    if (result != null) {
+                      final gameId = result['gameId'] as String?;
+                      final tableId = result['tableId'] as String?;
+
+                      if (gameId != null && tableId != null && mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => GameScreen(
+                              gameId: gameId,
+                              tableId: tableId,
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                  }));
+        }
       }),
     );
   }
@@ -264,11 +326,36 @@ class _LobbyScreenState extends State<LobbyScreen>
                           context: context,
                           builder: (_) => PayModal(
                               entryText: '500 Gold',
-                              onJoin: () {
+                              onJoin: () async {
                                 Navigator.of(context).pop();
-                                Navigator.of(context).push(MaterialPageRoute(
-                                    builder: (_) =>
-                                        GameScreen(gameId: 'demo-game')));
+                                // Show matchmaking modal
+                                final result = await showModalBottomSheet<
+                                    Map<String, dynamic>>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => WaitingMatchModal(
+                                      entryFee: 500, mockMode: false),
+                                );
+
+                                // Navigate to game if matched
+                                if (result != null) {
+                                  final gameId = result['gameId'] as String?;
+                                  final tableId = result['tableId'] as String?;
+
+                                  if (gameId != null &&
+                                      tableId != null &&
+                                      mounted) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => GameScreen(
+                                          gameId: gameId,
+                                          tableId: tableId,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
                               }));
                     }),
                 const SizedBox(height: 12),
@@ -281,11 +368,35 @@ class _LobbyScreenState extends State<LobbyScreen>
                           context: context,
                           builder: (_) => PayModal(
                               entryText: '2.5k Gold',
-                              onJoin: () {
+                              onJoin: () async {
                                 Navigator.of(context).pop();
-                                Navigator.of(context).push(MaterialPageRoute(
-                                    builder: (_) =>
-                                        GameScreen(gameId: 'demo-team')));
+
+                                final result = await showModalBottomSheet<
+                                    Map<String, dynamic>>(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (_) => WaitingMatchModal(
+                                      entryFee: 2500, mockMode: false),
+                                );
+
+                                if (result != null) {
+                                  final gameId = result['gameId'] as String?;
+                                  final tableId = result['tableId'] as String?;
+
+                                  if (gameId != null &&
+                                      tableId != null &&
+                                      mounted) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => GameScreen(
+                                          gameId: gameId,
+                                          tableId: tableId,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
                               }));
                     }),
                 const SizedBox(height: 12),

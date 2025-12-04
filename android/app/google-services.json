@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "481131505194",
+    "project_id": "tryb-ludo-v1",
+    "storage_bucket": "tryb-ludo-v1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:481131505194:android:681b9302127ab0f848c553",
+        "android_client_info": {
+          "package_name": "com.example.tryb_ludo_v1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiGdeLVKH_Jz_YYR036bcA7WwXnspxQmk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
