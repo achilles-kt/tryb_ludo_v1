@@ -4,8 +4,9 @@ import 'package:flame/game.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart' hide Image;
-import 'components/board_component.dart';
-import 'components/token_component.dart';
+import 'board_layout.dart';
+import 'board_component.dart';
+import 'token_component.dart';
 
 enum TurnOwner { bottomLeft, topLeft, topRight, bottomRight }
 
@@ -26,7 +27,9 @@ class LudoGame extends FlameGame {
   // Components
   late BoardComponent _board;
   final Map<String, List<TokenComponent>> _tokens = {};
-  // late DiceComponent _dice; // Removed, logic moved to overlay
+
+  // Player colors map
+  final Map<String, PlayerColor> _playerColors = {};
 
   // State Notifiers
   final diceValueNotifier = ValueNotifier<int>(1);
@@ -49,10 +52,6 @@ class LudoGame extends FlameGame {
     _board = BoardComponent();
     await add(_board);
 
-    // Dice component removed from Flame game loop, handled by overlay
-    // _dice = DiceComponent(position: Vector2(size.x / 2, size.y - 100));
-    // await add(_dice);
-
     // Subscribe to game state
     _subscribeToGame();
   }
@@ -74,20 +73,32 @@ class LudoGame extends FlameGame {
     final diceValue = _currentGameState?['diceValue'] as int? ?? 1;
     final state = _currentGameState?['state'] as String? ?? 'active';
     final winnerUid = _currentGameState?['winnerUid'] as String?;
+    final players = _currentGameState?['players'] as Map?;
 
     // Update notifiers
     currentTurnUidNotifier.value = turn;
     diceValueNotifier.value = diceValue;
 
+    // Map players to colors if not done
+    if (_playerColors.isEmpty && players != null) {
+      players.forEach((uid, meta) {
+        if (meta is Map) {
+          final seat = meta['seat'] as int? ?? 0;
+          _playerColors[uid as String] = _colorForSeat(seat);
+        }
+      });
+
+      // Initialize tokens for all players once colors are known
+      _initializeTokens(players);
+    }
+
     // Map turn UID to TurnOwner
-    final players = _currentGameState?['players'] as Map?;
     if (players != null && turn != null && players[turn] != null) {
       final seat = players[turn]['seat'] ?? 0;
       turnOwnerNotifier.value = switch (seat) {
         0 => TurnOwner.bottomLeft,
-        1 => TurnOwner
-            .topRight, // Standard Ludo: 0=BL, 1=TR (opposite), 2=TL, 3=BR usually
-        2 => TurnOwner.topLeft,
+        1 => TurnOwner.topLeft,
+        2 => TurnOwner.topRight,
         3 => TurnOwner.bottomRight,
         _ => TurnOwner.bottomLeft,
       };
@@ -102,90 +113,61 @@ class LudoGame extends FlameGame {
     if (state == 'completed') {
       _onGameCompleted(winnerUid);
     }
+  }
 
-    // Update turn indicator
-    final isMyTurn = turn == localUid;
-    _highlightCurrentPlayer(isMyTurn);
+  PlayerColor _colorForSeat(int seat) {
+    switch (seat) {
+      case 0:
+        return PlayerColor.red; // BL
+      case 1:
+        return PlayerColor.green; // TL
+      case 2:
+        return PlayerColor.yellow; // TR
+      case 3:
+        return PlayerColor.blue; // BR
+      default:
+        return PlayerColor.red;
+    }
+  }
+
+  void _initializeTokens(Map players) {
+    players.forEach((uid, meta) {
+      final playerId = uid as String;
+      if (!_tokens.containsKey(playerId)) {
+        _tokens[playerId] = [];
+        final color = _playerColors[playerId] ?? PlayerColor.red;
+
+        for (int i = 0; i < 4; i++) {
+          final token = TokenComponent(
+            ownerUid: playerId,
+            tokenIndex: i,
+            color: color,
+            initialPositionIndex: -1,
+          );
+          _tokens[playerId]!.add(token);
+          _board.add(token); // Add to board instead of game
+        }
+      }
+    });
   }
 
   void _updateTokens(Map board) {
     board.forEach((playerId, positions) {
       if (positions is! List) return;
 
-      // Ensure tokens exist for this player
-      if (!_tokens.containsKey(playerId)) {
-        _tokens[playerId] = [];
-        // TODO: Get color from player metadata/seat
-        final color = playerId == localUid ? Colors.green : Colors.yellow;
+      final playerTokens = _tokens[playerId];
+      if (playerTokens == null) return;
 
-        for (int i = 0; i < 4; i++) {
-          final token = TokenComponent(
-            playerId: playerId,
-            tokenIndex: i,
-            color: color,
-          );
-          _tokens[playerId]!.add(token);
-          add(token);
-        }
-      }
-
-      // Update positions
-      for (int i = 0; i < positions.length && i < 4; i++) {
+      for (int i = 0; i < positions.length && i < playerTokens.length; i++) {
         final pos = positions[i] as int;
-        _tokens[playerId]![i].moveToPosition(pos);
+        playerTokens[i].updatePositionIndex(pos);
       }
     });
   }
 
   Future<void> rollDice() async {
     isRollingNotifier.value = true;
-
-    // Simulate roll locally for UI feedback
-    // In real implementation, this might be triggered by backend response
-    // But for now we just trigger the backend call
-
-    // Note: The actual move submission happens when a token is tapped.
-    // If we want a separate "Roll Dice" step, we need a backend function for it.
-    // For this implementation based on previous code, rolling is part of the move?
-    // Actually, usually you roll first, then move.
-    // But the previous code had `diceValue` generated in `_handleTokenTap`.
-
-    // If we want to support "Roll then Move":
-    // 1. Call backend to roll dice.
-    // 2. Backend updates `diceValue` and state to `moving`.
-    // 3. User taps token.
-
-    // For now, to keep it simple and compatible with existing `submitMove` which takes `diceValue`:
-    // We will just generate a random value here to show animation,
-    // BUT `submitMove` in backend currently expects `diceValue` to be passed?
-    // Let's check `submitMove` in index.ts.
-    // It accepts `diceValue`.
-
-    // So the flow is:
-    // 1. User taps dice.
-    // 2. UI animates.
-    // 3. We store this "rolled" value locally?
-    // OR we just wait for user to tap a token, and THEN we send the move with a new random value?
-
-    // The previous `_handleTokenTap` generated a random value.
-    // To support the UI "Roll Dice" button:
-    // We should probably just animate the dice, and maybe store the value to be used when token is tapped?
-    // Or, if the game rules allow "Roll" then "Move", we need to change the flow.
-
-    // Let's stick to the existing flow for now:
-    // Tapping dice just visualizes it?
-    // The user request says: "When clicked / turn rolls, dice jumps to center, spins, then snaps back to owner"
-    // And "await widget.game.rollDice(); // sets diceValueNotifier"
-
-    // Let's implement `rollDice` to update the notifier so the user sees a value.
-    // Then when they tap a token, we use THAT value?
-    // But `_handleTokenTap` generates its own.
-
-    // Let's update `rollDice` to generate a value and store it in `diceValueNotifier`.
-    // And update `_handleTokenTap` to use that value if available, or generate one.
-
-    await Future.delayed(
-        const Duration(milliseconds: 500)); // Wait for animation
+    await Future.delayed(const Duration(milliseconds: 500));
     final newVal = DateTime.now().microsecond % 6 + 1;
     diceValueNotifier.value = newVal;
     isRollingNotifier.value = false;
@@ -197,9 +179,6 @@ class LudoGame extends FlameGame {
     final turn = _currentGameState?['turn'] as String?;
     if (turn != localUid) return; // Not my turn
 
-    // Use the value from the notifier if it was "rolled" recently?
-    // Or just generate one here as before.
-    // For safety/consistency with previous code:
     final diceValue = diceValueNotifier.value;
 
     try {
@@ -214,19 +193,9 @@ class LudoGame extends FlameGame {
     }
   }
 
-  void _highlightCurrentPlayer(bool isMyTurn) {
-    // Update visual indication of whose turn it is
-    _tokens.forEach((playerId, tokens) {
-      final shouldHighlight = (playerId == localUid && isMyTurn);
-      for (final token in tokens) {
-        token.setHighlight(shouldHighlight);
-      }
-    });
-  }
-
   // Called by TokenComponent when tapped
   void onTokenTapped(TokenComponent token) {
-    _handleTokenTap(token.playerId, token.tokenIndex);
+    _handleTokenTap(token.ownerUid, token.tokenIndex);
   }
 
   void _onGameCompleted(String? winner) {
@@ -250,15 +219,30 @@ class LudoGame extends FlameGame {
   }
 
   // Helper to get player metadata for UI
-  PlayerMeta getPlayerMeta(PlayerSpot spot) {
-    // TODO: Implement real mapping from `_currentGameState['players']`
-    // For now, return mock/placeholder
-    return PlayerMeta(
-      name: 'Player',
-      isYou: spot ==
-          PlayerSpot.bottomLeft, // Assuming BL is always local user for now
-      isTeam: false,
-    );
+  PlayerMeta? getPlayerMeta(PlayerSpot spot) {
+    // For 2P:
+    // BL = Seat 0
+    // TR = Seat 1
+    // Others = null
+
+    if (spot == PlayerSpot.bottomLeft) {
+      // Seat 0
+      return PlayerMeta(
+        name: 'Player 1',
+        isYou:
+            true, // Assuming local user is always seat 0 for now (or mapped to it)
+        isTeam: false,
+      );
+    } else if (spot == PlayerSpot.topRight) {
+      // Seat 1
+      return PlayerMeta(
+        name: 'Player 2',
+        isYou: false,
+        isTeam: false,
+      );
+    }
+
+    return null;
   }
 }
 

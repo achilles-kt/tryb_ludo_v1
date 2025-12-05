@@ -520,8 +520,8 @@ export const autoMoveTimeout = functions.database
 
         if (!newTime) return null;
 
-        // Wait 5 seconds
-        await new Promise((r) => setTimeout(r, 5000));
+        // Wait 11 seconds (10s deadline + 1s buffer)
+        await new Promise((r) => setTimeout(r, 11000));
 
         // Check if game still hasn't moved
         const gameRef = db.ref(`games/${gameId}`);
@@ -536,7 +536,15 @@ export const autoMoveTimeout = functions.database
             return null;
         }
 
-        // If it's bot's turn, let botTurn handle it
+        // Check deadline
+        const now = Date.now();
+        const deadline = game.turnDeadlineTs || 0;
+        if (now < deadline) {
+            // Still has time (maybe deadline was extended?)
+            return null;
+        }
+
+        // If it's bot's turn, let botTurn handle it (it has its own logic)
         if (game.turn === "BOT_PLAYER") {
             return null;
         }
@@ -574,6 +582,7 @@ export const autoMoveTimeout = functions.database
                 diceValue,
                 lastMoveTime: Date.now(),
                 updatedAt: Date.now(),
+                turnDeadlineTs: Date.now() + 10000, // Set deadline for next player
             });
             return null;
         }
@@ -640,8 +649,10 @@ export const autoMoveTimeout = functions.database
 
             if (diceValue === 6 && !allFinished) {
                 updates[`turn`] = currentPlayer;
+                updates[`turnDeadlineTs`] = Date.now() + 10000;
             } else {
                 updates[`turn`] = nextUid;
+                updates[`turnDeadlineTs`] = Date.now() + 10000;
             }
         }
 
@@ -769,9 +780,14 @@ export const submitMove = functions.https.onCall(async (data, context) => {
     let state = game.state || "active";
     let winnerUid = game.winnerUid || null;
 
+    const updates: any = {};
+    updates[`board/${uid}`] = myTokens; // Update the board for the current player
+    updates[`diceValue`] = diceValue; // Store the dice value that was used for this move
+
+    // Check win condition
     if (myTokens.every((p: number) => p >= 57)) {
-        state = "completed";
-        winnerUid = uid;
+        updates[`state`] = "completed";
+        updates[`winnerUid`] = uid;
 
         // Credit prize
         const entryFee = 100;
@@ -798,29 +814,28 @@ export const submitMove = functions.https.onCall(async (data, context) => {
         }
 
         console.log(`Player ${uid} won game ${gameId}, awarded ${prize} gold`);
+    } else {
+        // Switch turn
+        const playerIds = Object.keys(game.players);
+        const nextUid = playerIds.find((id) => id !== uid) || uid;
+
+        if (diceValue === 6) {
+            // Roll again
+            updates[`turn`] = uid;
+            updates[`turnDeadlineTs`] = Date.now() + 10000;
+        } else {
+            updates[`turn`] = nextUid;
+            updates[`turnDeadlineTs`] = Date.now() + 10000;
+        }
     }
 
-    // Determine next turn
-    const playerIds = Object.keys(game.players || {});
-    const otherUid = playerIds.find((id) => id !== uid) || uid;
-    const nextTurn = winnerUid ? uid : (diceValue === 6 && !winnerUid ? uid : otherUid);
+    updates[`lastMoveTime`] = Date.now();
+    updates[`updatedAt`] = Date.now();
+    // We don't update diceValue here because the next player (or same player) needs to roll.
+    // The client or bot will generate the next roll.
 
-    await gameRef.update({
-        board,
-        turn: nextTurn,
-        diceValue,
-        state,
-        winnerUid: winnerUid || null,
-        lastMoveTime: Date.now(),
-        updatedAt: Date.now(),
-    });
+    await gameRef.update(updates);
 
-    return { success: true, state, winnerUid };
+    return { success: true };
 });
 
-// ---------------------------------------------
-// 10. hello test endpoint
-// ---------------------------------------------
-export const hello = onRequest((req, res) => {
-    res.send("Hello from Tryb!");
-});

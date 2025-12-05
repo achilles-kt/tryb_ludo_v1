@@ -12,19 +12,17 @@ class PlayersOverlay extends StatelessWidget {
         // final w = constraints.maxWidth;
         // final h = constraints.maxHeight;
 
-        Widget playerSpot(PlayerSpot spot) {
-          if (spot == PlayerSpot.none) return const SizedBox.shrink();
-          final data =
-              game.getPlayerMeta(spot); // name, avatar, uid, isYou, isTeam
+        Widget playerSpot(PlayerSpot spot, PlayerMeta? meta) {
+          if (meta == null) return const SizedBox.shrink();
 
           final child = Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (spot == PlayerSpot.topRight || spot == PlayerSpot.bottomRight)
-                _playerInfo(data, true),
-              _avatar(data),
+                _playerInfo(meta, true),
+              _avatar(meta),
               if (spot == PlayerSpot.bottomLeft || spot == PlayerSpot.topLeft)
-                _playerInfo(data, false),
+                _playerInfo(meta, false),
             ],
           );
 
@@ -58,12 +56,36 @@ class PlayersOverlay extends StatelessWidget {
           }
         }
 
+        // Get players from game
+        // We need to map them to spots:
+        // Seat 0 -> BottomLeft
+        // Seat 1 -> TopRight
+        // (For now assuming 2P)
+
+        // We can iterate over known players in game._playerColors or similar
+        // But PlayersOverlay needs access to player list.
+        // LudoGame doesn't expose a nice list yet.
+        // Let's assume we can get them via game.getPlayerMeta(spot) but we need to know WHICH spot has a player.
+
+        // Better approach: Iterate over game.playerColors keys (uids) and map to spots.
+        // But `playerColors` is private `_playerColors`.
+        // Let's add a public getter for player spots in LudoGame or just hardcode the check here for now.
+
+        // Actually, the previous code called `game.getPlayerMeta(spot)`.
+        // Let's update `getPlayerMeta` in LudoGame to return null if no player at that spot.
+        // And update this loop to only render if not null.
+
+        // Wait, the user request said:
+        // "In 2P, only show two avatar spots: bottom-left (seat 0), top-right (seat 1)."
+
         return Stack(
           children: [
-            playerSpot(PlayerSpot.bottomLeft),
-            playerSpot(PlayerSpot.topLeft),
-            playerSpot(PlayerSpot.topRight),
-            playerSpot(PlayerSpot.bottomRight),
+            playerSpot(PlayerSpot.bottomLeft,
+                game.getPlayerMeta(PlayerSpot.bottomLeft)),
+            // playerSpot(PlayerSpot.topLeft, game.getPlayerMeta(PlayerSpot.topLeft)), // Hidden for 2P
+            playerSpot(
+                PlayerSpot.topRight, game.getPlayerMeta(PlayerSpot.topRight)),
+            // playerSpot(PlayerSpot.bottomRight, game.getPlayerMeta(PlayerSpot.bottomRight)), // Hidden for 2P
           ],
         );
       },
