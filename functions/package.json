@@ -1,6 +1,6 @@
 {
   "name": "tryb-functions",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "lib/index.js",
   "engines": {
     "node": "20"
@@ -12,8 +12,8 @@
     "lint": "echo \"skip lint\""
   },
   "dependencies": {
-    "firebase-admin": "^11.10.1",
-    "firebase-functions": "^4.5.0"
+    "firebase-admin": "^11.11.1",
+    "firebase-functions": "^4.9.0"
   },
   "devDependencies": {
     "@types/node": "^20.4.2",
