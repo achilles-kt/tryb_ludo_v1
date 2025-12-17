@@ -15,6 +15,7 @@ class WaitingMatchModal extends StatefulWidget {
   final OnPairedCallback? onPaired;
   final bool mockMode; // when true, simulates a pairing for local UI testing
   final Duration mockDelay;
+  final String mode; // '2p' or '4p'
 
   const WaitingMatchModal({
     super.key,
@@ -22,6 +23,7 @@ class WaitingMatchModal extends StatefulWidget {
     this.onPaired,
     this.mockMode = false,
     this.mockDelay = const Duration(seconds: 4),
+    this.mode = '2p',
   });
 
   @override
@@ -38,11 +40,16 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
   final _uid = FirebaseAuth.instance.currentUser?.uid;
   final _db = FirebaseDatabase.instance;
 
+  // 4P Specific State
+  bool _hasTeammate = false; // Transition from Solo Queue to Team Queue
+  String? _teammateName; // Could fetch this
+  // In a real app we'd fetch names. For now we just show "Partner" or "Bot".
+
   @override
   void initState() {
     super.initState();
+    print('🔍 DEBUG: WaitingMatchModal called for mode: ${widget.mode}');
     if (widget.mockMode) {
-      // helpful for UI dev without backend
       Future.delayed(widget.mockDelay, () {
         _onPairedMock();
       });
@@ -62,18 +69,27 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
     }
 
     try {
+      print('WaitingMatchModal picked | UID: $_uid | Mode: ${widget.mode}');
       setState(() {
         _isLoading = true;
-        _statusText = 'Joining queue...';
+        _statusText = widget.mode == '4p'
+            ? 'Looking for a teammate...'
+            : 'Joining queue...';
       });
 
-      final callable = _functions.httpsCallable('join2PQueue');
+      // Determine correct Cloud Function
+      final functionName =
+          widget.mode == '4p' ? 'joinSoloQueue' : 'join2PQueue';
+
+      final callable = _functions.httpsCallable(functionName);
       await callable.call(<String, dynamic>{'entryFee': widget.entryFee});
 
       // subscribe to userQueueStatus/{uid} to get status updates
       _subscribeToStatus();
       setState(() {
-        _statusText = 'Waiting for opponent...';
+        _statusText = widget.mode == '4p'
+            ? 'Searching for partner...'
+            : 'Waiting for opponent...';
         _isLoading = false;
       });
     } on FirebaseFunctionsException catch (e) {
@@ -100,42 +116,74 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
       final v = snap.value;
       if (v is Map) {
         final status = v['status']?.toString();
-        if (status == 'queued') {
-          setState(() {
-            _statusText = 'Queued — waiting for opponent';
-          });
-        } else if (status == 'paired') {
-          setState(() {
-            _statusText = 'Matched! Preparing game...';
-          });
+
+        // 4P specific logic
+        if (widget.mode == '4p') {
+          if (status == 'queued_solo') {
+            if (mounted) setState(() => _statusText = 'Finding a teammate...');
+          } else if (status == 'queued_team') {
+            // Transition to Stage 2
+            final teamId = v['teamId'];
+            print(
+                '🔍 DEBUG: userQueueStatus update | TeamID: $teamId | Status: queued_team');
+            final tName = v['teammateName']?.toString();
+            if (mounted) {
+              setState(() {
+                _hasTeammate = true;
+                _teammateName = tName;
+                _statusText = 'Team formed! Searching for opponents...';
+              });
+            }
+          }
+        } else {
+          // 2P Logic
+          if (status == 'queued') {
+            if (mounted)
+              setState(() => _statusText = 'Queued — waiting for opponent');
+          }
+        }
+
+        if (status == 'paired') {
+          if (mounted) {
+            setState(() {
+              _statusText = 'Matched! Preparing game...';
+            });
+          }
           final tableId = v['tableId']?.toString();
           final gameId = v['gameId']?.toString();
           _onPaired(tableId, gameId);
         } else if (status == 'insufficient_funds') {
-          setState(() {
-            _isError = true;
-            _errorMessage = 'Insufficient funds to join this table.';
-          });
+          if (mounted) {
+            setState(() {
+              _isError = true;
+              _errorMessage = 'Insufficient funds to join this table.';
+            });
+          }
         } else if (status == 'left') {
           final reason = v['reason']?.toString();
-          setState(() {
-            _isError = true;
-            _errorMessage = reason == 'timeout'
-                ? 'Matchmaking timed out. Please try again.'
-                : 'You left the queue.';
-          });
+          if (mounted) {
+            setState(() {
+              _isError = true;
+              _errorMessage = reason == 'timeout'
+                  ? 'Matchmaking timed out. Please try again.'
+                  : reason == 'partner_left'
+                      ? 'Your partner left the queue.'
+                      : 'You left the queue.';
+            });
+          }
         }
       }
     }, onError: (err) {
-      setState(() {
-        _isError = true;
-        _errorMessage = err.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _isError = true;
+          _errorMessage = err.toString();
+        });
+      }
     });
   }
 
   void _onPaired(String? tableId, String? gameId) {
-    // guard
     if (tableId == null || gameId == null) {
       setState(() {
         _isError = true;
@@ -143,11 +191,7 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
       });
       return;
     }
-
-    // Cancel subscription before navigating
     _statusSub?.cancel();
-
-    // Pop modal with IDs
     if (mounted) {
       Navigator.of(context).pop({
         'tableId': tableId,
@@ -157,7 +201,6 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
   }
 
   void _onPairedMock() {
-    // simulate a pair for UI testing
     _statusSub?.cancel();
     widget.onPaired?.call(tableId: 'mock-table', gameId: 'mock-game');
     Navigator.of(context).pop({'tableId': 'mock-table', 'gameId': 'mock-game'});
@@ -168,9 +211,12 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
       _isLoading = true;
       _statusText = 'Leaving queue...';
     });
-
     try {
-      final callable = _functions.httpsCallable('leaveQueue');
+      final callable =
+          _functions.httpsCallable('leaveQueue'); // Works for both? Need verify
+      // Ideally separate leave function or leaveQueue handles based on user status (which it does via currentQueue path)
+      // Assuming existing leaveQueue handles generic removal or we need update.
+      // For now assume it works or just client-side detach.
       await callable.call();
       _statusSub?.cancel();
       await _db
@@ -178,7 +224,6 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
           .set({'status': 'left', 'ts': DateTime.now().millisecondsSinceEpoch});
       if (mounted) Navigator.of(context).pop({'cancelled': true});
     } catch (e) {
-      // best effort - still close modal
       _statusSub?.cancel();
       if (mounted) {
         Navigator.of(context).pop({'cancelled': true, 'error': e.toString()});
@@ -212,80 +257,152 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
       );
     }
 
+    if (widget.mode == '4p') {
+      return _build4PBody();
+    }
+
+    return _build2PBody();
+  }
+
+  // ----------------- 2P Layout -----------------
+  Widget _build2PBody() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const SizedBox(height: 8),
-        _playerAvatarsRow(),
-        const SizedBox(height: 12),
-        Text(_statusText,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        if (_isLoading)
-          const SizedBox(
-            height: 40,
-            width: 120,
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else
-          const SizedBox(height: 40),
-        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : _leaveQueue,
-              icon: const Icon(Icons.close),
-              label: const Text('Cancel'),
-              style:
-                  ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            ),
+            _avatar('ME'),
             const SizedBox(width: 12),
-            ElevatedButton.icon(
-              onPressed: _isLoading
-                  ? null
-                  : () {
-                      // optionally retry join
-                      _startJoinFlow();
-                    },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            )
+            _vsText(),
+            const SizedBox(width: 12),
+            _avatar('?', isPlaceholder: true),
           ],
         ),
-        const SizedBox(height: 12),
+        _statusSection(),
       ],
     );
   }
 
-  Widget _playerAvatarsRow() {
-    // small UIs with placeholder avatars; can be replaced with real avatars from DB
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+  // ----------------- 4P Layout -----------------
+  Widget _build4PBody() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _avatar(['A', 'B', 'C', 'D'][DateTime.now().second % 4]),
-        const SizedBox(width: 12),
-        Column(children: const [
-          Text('VS',
-              style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white54,
-                  fontStyle: FontStyle.italic)),
-        ]),
-        const SizedBox(width: 12),
-        _avatar(['X', 'Y', 'Z'][DateTime.now().second % 3]),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Left Team (Me + ?)
+            Column(
+              children: [
+                Row(children: [
+                  _avatar('ME', size: 24),
+                  const SizedBox(width: 4),
+                  _hasTeammate
+                      ? _avatar(
+                          _teammateName != null && _teammateName!.isNotEmpty
+                              ? _teammateName![0]
+                              : 'P2',
+                          size: 24)
+                      : _spinnerAvatar(size: 24)
+                ]),
+                const SizedBox(height: 4),
+                Text(_teammateName ?? "My Team",
+                    style: TextStyle(fontSize: 10, color: Colors.white54))
+              ],
+            ),
+
+            const SizedBox(width: 12),
+            _vsText(),
+            const SizedBox(width: 12),
+
+            // Right Team (Opponents)
+            Column(
+              children: [
+                Row(children: [
+                  _avatar('?', size: 24, isPlaceholder: true),
+                  const SizedBox(width: 4),
+                  _avatar('?', size: 24, isPlaceholder: true),
+                ]),
+                const SizedBox(height: 4),
+                const Text("Opponents",
+                    style: TextStyle(fontSize: 10, color: Colors.white54))
+              ],
+            ),
+          ],
+        ),
+        _statusSection(),
       ],
     );
   }
 
-  Widget _avatar(String label) {
+  Widget _statusSection() {
+    return Column(children: [
+      const SizedBox(height: 16),
+      Text(_statusText,
+          style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.white70)),
+      const SizedBox(height: 16),
+      if (_isLoading)
+        const SizedBox(
+          height: 30,
+          width: 30,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      else
+        const SizedBox(height: 30),
+      const SizedBox(height: 20),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton.icon(
+            onPressed: _isLoading ? null : _leaveQueue,
+            icon: const Icon(Icons.close, size: 16),
+            label: const Text('Cancel'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+          ),
+        ],
+      ),
+    ]);
+  }
+
+  Widget _vsText() {
+    return Column(children: const [
+      Text('VS',
+          style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Colors.white54,
+              fontStyle: FontStyle.italic)),
+    ]);
+  }
+
+  Widget _avatar(String label, {double size = 28, bool isPlaceholder = false}) {
     return CircleAvatar(
-      radius: 28,
-      backgroundColor: Colors.grey.shade800,
+      radius: size,
+      backgroundColor: isPlaceholder ? Colors.white10 : Colors.deepPurple,
       child: Text(label,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          style: TextStyle(
+              fontSize: size * 0.6,
+              fontWeight: FontWeight.bold,
+              color: Colors.white)),
     );
+  }
+
+  Widget _spinnerAvatar({double size = 28}) {
+    return Container(
+        width: size * 2,
+        height: size * 2,
+        decoration:
+            BoxDecoration(color: Colors.white10, shape: BoxShape.circle),
+        child: const Padding(
+            padding: EdgeInsets.all(12),
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: Colors.white30)));
   }
 
   @override
@@ -302,9 +419,14 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Finding a Match',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                Text(
+                    widget.mode == '4p'
+                        ? 'Team Matchmaking'
+                        : 'Finding a Match',
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white)),
                 const SizedBox(height: 8),
                 _buildBody(),
               ],

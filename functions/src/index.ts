@@ -16,6 +16,7 @@ import { sendInvite, respondToInvite, cancelInvite } from "./controllers/invites
 import { onInviteCreated } from "./triggers/invite_triggers";
 import { joinSoloQueue, joinTeamQueue, processSoloQueue, processTeamQueue, attemptSoloPairing, attemptTeamPairing, debugForce4PProcess } from "./controllers/team_table";
 import { testTeamUpFlow, testTeamBotFallback, test2PFlow, testInviteFlow, testAllFlows } from "./controllers/simulation";
+import { handleInviteLink, checkDeferredLink } from "./controllers/deep_links";
 
 export {
     createPrivateTable,
@@ -31,7 +32,9 @@ export {
     testTeamBotFallback,
     test2PFlow,
     testInviteFlow,
-    testAllFlows
+    testAllFlows,
+    handleInviteLink,
+    checkDeferredLink
 };
 
 // ---------------------------------------------
@@ -55,8 +58,10 @@ export const onUserCreate = functions.auth.user().onCreate(async (user) => {
     const now = Date.now();
     const profile = {
         profile: {
-            displayName: user.displayName || null,
+            displayName: user.displayName || "New User",
             avatarUrl: user.photoURL || null,
+            city: "",
+            country: "India",
             createdAt: now,
             lastLoginAt: now,
         },
@@ -136,8 +141,10 @@ export const bootstrapUser = functions.https.onCall(async (data, context) => {
     const now = Date.now();
     const profile = {
         profile: {
-            displayName: context.auth?.token.name || "Player",
+            displayName: context.auth?.token.name || "New User",
             avatarUrl: context.auth?.token.picture || null,
+            city: "",
+            country: "India",
             createdAt: now,
             lastLoginAt: now,
         },

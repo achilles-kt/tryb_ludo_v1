@@ -3,7 +3,7 @@ import { db } from "../admin";
 import { applyWalletDelta } from "../utils";
 import { getConfig } from "../config";
 
-const QUEUE_TIMEOUT_MS = 40 * 1000; // 40 seconds
+// const QUEUE_TIMEOUT_MS = 40 * 1000; // Removed in favor of dynamic config
 
 // ---------------------------------------------
 // 1. Join Solo Queue (Individual looking for partner)
@@ -69,7 +69,11 @@ export const joinSoloQueue = functions.https.onCall(async (data, context) => {
 // ---------------------------------------------
 export async function processSoloQueue() {
     console.log('🔍 DEBUG: processSoloQueue called');
-    const cutoff = Date.now() - QUEUE_TIMEOUT_MS;
+
+    const config = await getConfig();
+    const timeoutSec = config.modes["4p_solo"].queueTimeoutSec || 40;
+    const cutoff = Date.now() - (timeoutSec * 1000);
+
     const snap = await db.ref("queue/4p_solo").orderByChild("ts").endAt(cutoff).get();
 
     if (!snap.exists()) return;
@@ -131,7 +135,11 @@ export async function processSoloQueue() {
 // ---------------------------------------------
 export async function processTeamQueue() {
     console.log('🔍 DEBUG: processTeamQueue called');
-    const cutoff = Date.now() - QUEUE_TIMEOUT_MS;
+
+    const config = await getConfig();
+    const timeoutSec = config.modes["4p_team"].queueTimeoutSec || 60;
+    const cutoff = Date.now() - (timeoutSec * 1000);
+
     const snap = await db.ref("queue/4p_team").orderByChild("ts").endAt(cutoff).get();
 
     if (!snap.exists()) return;
@@ -315,10 +323,25 @@ export async function attemptTeamPairing() {
         teams.push({ key: c.key, ...c.val() });
     });
 
-    if (teams.length < 2) return;
+    console.log(`[TEAM_PAIR] Found ${teams.length} teams in queue.`);
+
+    if (teams.length < 2) {
+        if (teams.length === 1) {
+            const t = teams[0];
+            const age = (Date.now() - t.ts) / 1000;
+            console.log(`[TEAM_PAIR] Waiting for opponent. Team 1: ${t.teamId} (Age: ${age.toFixed(1)}s)`);
+        }
+        return;
+    }
 
     const t1 = teams[0];
     const t2 = teams[1];
+    const age1 = (Date.now() - t1.ts) / 1000;
+    const age2 = (Date.now() - t2.ts) / 1000;
+
+    console.log(`[TEAM_PAIR] Attempting to match:
+      T1: ${t1.teamId} (Age: ${age1.toFixed(1)}s)
+      T2: ${t2.teamId} (Age: ${age2.toFixed(1)}s)`);
 
     console.log(`Attempting Team Claim`, { team1: t1.teamId, team2: t2.teamId });
 

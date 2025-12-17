@@ -47,6 +47,7 @@ class BottomChatPill extends StatelessWidget {
   void _openChat(BuildContext ctx) {
     showModalBottomSheet(
         context: ctx,
+        isScrollControlled: true,
         backgroundColor: Color(0xFF14161b),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(24))),

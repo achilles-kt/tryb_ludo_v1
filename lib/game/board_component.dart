@@ -69,21 +69,86 @@ class BoardComponent extends PositionComponent with HasGameRef<FlameGame> {
 
   void _drawPaths(Canvas canvas) {
     final cs = BoardLayout.cellSize;
-    final pathPaint = Paint()
-      ..color = Colors.white.withOpacity(0.06)
+    final stepPaint = Paint()
+      ..color = Colors.white.withOpacity(0.05)
       ..style = PaintingStyle.fill;
 
-    // Draw horizontal mid path
-    canvas.drawRect(
-      Rect.fromLTWH(5 * cs, 7 * cs, cs * 5, cs),
-      pathPaint,
-    );
+    final safeStepPaint = Paint()
+      ..color = Colors.white.withOpacity(0.15)
+      ..style = PaintingStyle.fill;
 
-    // Draw vertical mid path
-    canvas.drawRect(
-      Rect.fromLTWH(7 * cs, 5 * cs, cs, cs * 5),
-      pathPaint,
-    );
+    // Helper to draw a single cell
+    void drawCell(int row, int col, {bool isSafe = false}) {
+      Paint paint = isSafe ? safeStepPaint : stepPaint;
+
+      // Check for home path colors
+      // Green (Row 7, Cols 1-5)
+      if (row == 7 && col >= 1 && col <= 5) {
+        paint = Paint()
+          ..color = Colors.green.withOpacity(0.2)
+          ..style = PaintingStyle.fill;
+      }
+      // Blue (Row 7, Cols 9-13)
+      else if (row == 7 && col >= 9 && col <= 13) {
+        paint = Paint()
+          ..color = Colors.blue.withOpacity(0.2)
+          ..style = PaintingStyle.fill;
+      }
+      // Yellow (Rows 1-5, Col 7)
+      else if (col == 7 && row >= 1 && row <= 5) {
+        paint = Paint()
+          ..color = Colors.yellow.withOpacity(0.2)
+          ..style = PaintingStyle.fill;
+      }
+      // Red (Rows 9-13, Col 7)
+      else if (col == 7 && row >= 9 && row <= 13) {
+        paint = Paint()
+          ..color = Colors.red.withOpacity(0.2)
+          ..style = PaintingStyle.fill;
+      }
+
+      final rect = Rect.fromLTWH(
+        col * cs + 1, // +1 for gap/border effect
+        row * cs + 1,
+        cs - 2,
+        cs - 2,
+      );
+      final rrect = RRect.fromRectAndRadius(
+          rect, const Radius.circular(4)); // Rounded edges for cells too?
+      canvas.drawRRect(rrect, paint);
+    }
+
+    // Left Arm (Rows 6-8, Cols 0-5)
+    for (int r = 6; r <= 8; r++) {
+      for (int c = 0; c <= 5; c++) {
+        bool isSafe = (r == 8 && c == 1) || (r == 6 && c == 1);
+        drawCell(r, c, isSafe: isSafe);
+      }
+    }
+
+    // Right Arm (Rows 6-8, Cols 9-14)
+    for (int r = 6; r <= 8; r++) {
+      for (int c = 9; c <= 14; c++) {
+        bool isSafe = (r == 6 && c == 13) || (r == 8 && c == 13);
+        drawCell(r, c, isSafe: isSafe);
+      }
+    }
+
+    // Top Arm (Rows 0-5, Cols 6-8)
+    for (int r = 0; r <= 5; r++) {
+      for (int c = 6; c <= 8; c++) {
+        bool isSafe = (r == 1 && c == 8) || (r == 1 && c == 6);
+        drawCell(r, c, isSafe: isSafe);
+      }
+    }
+
+    // Bottom Arm (Rows 9-14, Cols 6-8)
+    for (int r = 9; r <= 14; r++) {
+      for (int c = 6; c <= 8; c++) {
+        bool isSafe = (r == 13 && c == 6) || (r == 13 && c == 8);
+        drawCell(r, c, isSafe: isSafe);
+      }
+    }
 
     // Center
     final centerPaint = Paint()

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../game/ludo_game.dart';
+import '../../state/game_state.dart';
+import '../dice_widget.dart';
 
 class DiceOverlay extends StatefulWidget {
   final LudoGame game;
@@ -79,28 +82,79 @@ class _DiceOverlayState extends State<DiceOverlay>
 
   @override
   Widget build(BuildContext context) {
+    // We need the current phase + whose turn it is
+    final gameState = widget.game.state; // uses your GameState getter
+    final phase = gameState.turnPhase; // TurnPhase enum
+    final isMyTurn =
+        widget.game.currentTurnUidNotifier.value == widget.game.localUid;
+
     return ValueListenableBuilder<TurnOwner>(
       valueListenable: widget.game.turnOwnerNotifier,
       builder: (ctx, owner, _) {
-        final pos = _posForOwner(owner, context);
+        // Position depends on owner AND phase (center while rolling)
+        final pos = _posForOwnerAndPhase(owner, phase, context);
+
+        // Dice is tappable only if:
+        // - it's my turn
+        // - phase is waitingRoll (hasn't rolled yet)
+        // - some time is left on the timer
+        final canTapDice =
+            isMyTurn && phase == TurnPhase.waitingRoll && _timerProgress > 0.0;
+
+        // Debug logs for tap conditions
+        if (isMyTurn) {
+          // Only log if it's my turn to avoid spam
+          debugPrint(
+              '🎲 DiceOverlay Build: isMyTurn=$isMyTurn, phase=$phase, timer=$_timerProgress, canTap=$canTapDice');
+        }
+
         return AnimatedPositioned(
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeOutBack,
           left: pos.dx,
           top: pos.dy,
           child: GestureDetector(
-            onTap: () async {
-              final isMyTurn = widget.game.currentTurnUidNotifier.value ==
-                  widget.game.localUid;
-              if (!isMyTurn) return;
-
-              await widget.game.rollDice();
-            },
-            child: _buildDiceWithTimer(),
+            onTap: canTapDice
+                ? () async {
+                    final currentUser = FirebaseAuth.instance.currentUser;
+                    debugPrint(
+                        '🎲 Tapping dice. Current User: ${currentUser?.uid}');
+                    if (currentUser == null) {
+                      debugPrint('❌ Cannot roll: User not signed in.');
+                      return;
+                    }
+                    try {
+                      await widget.game.rollDice();
+                    } catch (e) {
+                      debugPrint('❌ Error calling rollDice: $e');
+                    }
+                  }
+                : null, // disables taps when not allowed
+            child: _buildDiceWithTimer(phase, isMyTurn),
           ),
         );
       },
     );
+  }
+
+  Offset _posForOwnerAndPhase(
+    TurnOwner owner,
+    TurnPhase phase,
+    BuildContext ctx,
+  ) {
+    final size = MediaQuery.of(ctx).size;
+
+    // While rolling, dice goes to center of screen (approx center of board)
+    if (phase == TurnPhase.rollingAnim) {
+      const diceSize = 70.0;
+      return Offset(
+        (size.width - diceSize) / 2,
+        (size.height - diceSize) / 2,
+      );
+    }
+
+    // In all other phases, dice sits near the current turn owner's profile
+    return _posForOwner(owner, ctx);
   }
 
   Offset _posForOwner(TurnOwner owner, BuildContext ctx) {
@@ -118,91 +172,22 @@ class _DiceOverlayState extends State<DiceOverlay>
     };
   }
 
-  Widget _buildDiceWithTimer() {
-    return SizedBox(
-      width: 70,
-      height: 70,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Timer ring
-          CustomPaint(
-            size: const Size(70, 70),
-            painter: _TimerPainter(progress: _timerProgress),
-          ),
-          // Dice cube
-          RotationTransition(
-            turns: _rollCtrl,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Colors.white, Color(0xFFECECEC)],
-                ),
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: const [
-                  BoxShadow(
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
-                    color: Colors.black54,
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: ValueListenableBuilder<int>(
-                valueListenable: widget.game.diceValueNotifier,
-                builder: (ctx, v, _) => Text(
-                  v.toString(),
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+  Widget _buildDiceWithTimer(TurnPhase phase, bool isMyTurn) {
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.game.diceValueNotifier,
+      builder: (ctx, v, _) {
+        // Dice should look blank while we are in waitingRoll,
+        // regardless of previous value.
+        final isBlank = phase == TurnPhase.waitingRoll;
+
+        return DiceWidget(
+          value: v,
+          timeLeft: _timerProgress,
+          size: 70,
+          isBlank: isBlank,
+          onTap: null, // tap handled by outer GestureDetector
+        );
+      },
     );
   }
-}
-
-class _TimerPainter extends CustomPainter {
-  final double progress;
-  _TimerPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final radius = size.width / 2 - 4;
-
-    final bgPaint = Paint()
-      ..color = Colors.white10
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4;
-    canvas.drawCircle(center, radius, bgPaint);
-
-    final fgPaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFFA259FF), Color(0xFF3B82F6)],
-      ).createShader(Rect.fromCircle(center: center, radius: radius))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-
-    final sweep = 2 * 3.14159 * progress;
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -3.14159 / 2,
-      sweep,
-      false,
-      fgPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _TimerPainter oldDelegate) =>
-      oldDelegate.progress != progress;
 }

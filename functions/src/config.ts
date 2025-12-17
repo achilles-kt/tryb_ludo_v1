@@ -27,7 +27,7 @@ const DEFAULTS = {
         },
         "4p_team": {
             stake: 1000,
-            queueTimeoutSec: 40
+            queueTimeoutSec: 60
         },
         "private": {
             stake: 1000,

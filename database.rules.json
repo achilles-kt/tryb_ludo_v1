@@ -15,6 +15,10 @@
                 "currentTableId": {
                     ".read": "$uid === auth.uid",
                     ".write": "$uid === auth.uid"
+                },
+                "fcmToken": {
+                    ".read": "$uid === auth.uid",
+                    ".write": "$uid === auth.uid"
                 }
             }
         },
@@ -24,26 +28,60 @@
                 ".write": "false"
             }
         },
-        "queue": {
-            "2p": {
-                ".indexOn": [
-                    "ts"
-                ],
-                "$pushId": {
-                    ".write": "auth != null && newData.child('uid').val() === auth.uid",
-                    ".read": "auth != null"
-                }
-            }
-        },
         "userQueueStatus": {
             "$uid": {
                 ".read": "auth != null && auth.uid === $uid",
                 ".write": "auth != null && auth.uid === $uid"
             }
         },
+        "userGameStatus": {
+            "$uid": {
+                ".read": "auth != null",
+                ".write": "false"
+            }
+        },
+        "queue": {
+            "2p": {
+                ".read": "auth != null",
+                ".indexOn": [
+                    "ts"
+                ],
+                "$pushId": {
+                    ".write": "auth != null && newData.child('uid').val() === auth.uid"
+                }
+            },
+            "4p_solo": {
+                ".read": "auth != null",
+                ".indexOn": [
+                    "ts",
+                    "uid"
+                ],
+                "$pushId": {
+                    ".write": "auth != null && newData.child('uid').val() === auth.uid"
+                }
+            },
+            "4p_team": {
+                ".read": "auth != null",
+                ".indexOn": [
+                    "ts"
+                ],
+                "$teamId": {
+                    ".write": "auth != null"
+                }
+            },
+            "private": {
+                "$uid": {
+                    ".read": "auth != null",
+                    ".write": "false"
+                }
+            }
+        },
         "tables": {
+            ".read": "auth != null",
+            ".indexOn": [
+                "status"
+            ],
             "$tableId": {
-                ".read": "auth != null && data.child('players').hasChild(auth.uid)",
                 ".write": "auth.token.admin === true"
             }
         },
@@ -51,7 +89,36 @@
             "$gameId": {
                 ".read": "auth != null && data.child('players').hasChild(auth.uid)",
                 ".write": "false"
+            },
+            ".indexOn": [
+                "state"
+            ]
+        },
+        "global_chat": {
+            ".read": "auth != null",
+            ".write": "auth != null"
+        },
+        "game_chats": {
+            "$gameId": {
+                ".read": "auth != null && root.child('games').child($gameId).child('players').hasChild(auth.uid)",
+                ".write": "auth != null && root.child('games').child($gameId).child('players').hasChild(auth.uid)"
             }
+        },
+        "invites": {
+            ".read": "auth != null && (query.orderByChild == 'hostUid' && query.equalTo == auth.uid)",
+            ".indexOn": [
+                "hostUid",
+                "guestUid",
+                "status"
+            ],
+            "$inviteId": {
+                ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('guestUid').val() === auth.uid)",
+                ".write": "false"
+            }
+        },
+        "config": {
+            ".read": true,
+            ".write": "auth.token.admin === true"
         }
     }
 }

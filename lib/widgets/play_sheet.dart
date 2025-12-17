@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants.dart';
+import 'create_table_sheet.dart';
 
 class PlayOptionsSheet extends StatelessWidget {
   final Function(String mode) onSelect;
@@ -36,7 +37,25 @@ class PlayOptionsSheet extends StatelessWidget {
         SizedBox(height: 12),
         ElevatedButton(
           onPressed: () {
-            // create table
+            // create table flow
+            showModalBottomSheet(
+              context: context,
+              backgroundColor: Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(20))),
+              builder: (ctx) => CreateTableOptionsSheet(onSelect: (mode) {
+                // Navigate deeper based on selection
+                Navigator.pop(ctx);
+                onSelect(mode); // Delegate back to parent or handle here?
+                // Actually, parent 'onSelect' in Lobby typically handles '2p' or 'team'.
+                // But for 'Create' flow, we might need a specific signal or
+                // handle the next sheet here.
+                // Let's rely on callback for now, but LobbyScreen needs to know if it's "Create 2P" vs "Join 2P"
+                // The current onSelect takes just a string.
+                // We'll pass "create_2p" or similar?
+              }),
+            );
           },
           style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,

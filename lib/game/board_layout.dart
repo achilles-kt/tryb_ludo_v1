@@ -56,6 +56,32 @@ class BoardLayout {
     return path[clamped];
   }
 
+  /// Returns list of Vector2 positions for animation path from fromPos to toPos
+  static List<Vector2> getPathPositions(
+    PlayerColor color,
+    int fromPos,
+    int toPos, {
+    int tokenIndexForYard = 0,
+  }) {
+    final path = <Vector2>[];
+
+    // Special case: Exiting yard (-1 -> 0)
+    if (fromPos < 0 && toPos >= 0) {
+      // Only include the destination (instant placement)
+      path.add(positionFor(color, toPos, tokenIndexForYard: tokenIndexForYard));
+      return path;
+    }
+
+    // Normal movement: calculate each intermediate position
+    if (fromPos >= 0) {
+      for (int pos = fromPos; pos <= toPos; pos++) {
+        path.add(positionFor(color, pos, tokenIndexForYard: tokenIndexForYard));
+      }
+    }
+
+    return path;
+  }
+
   // ------------ INTERNAL BUILDERS ------------ //
 
   static List<Vector2> _buildGlobalTrack() {
@@ -188,28 +214,28 @@ class BoardLayout {
     Vector2 cc(int row, int col) => cellCenter(row, col);
     return {
       PlayerColor.red: [
-        cc(11, 2),
-        cc(11, 3),
+        cc(12, 1),
         cc(12, 2),
-        cc(12, 3),
+        cc(13, 1),
+        cc(13, 2),
       ],
       PlayerColor.green: [
+        cc(1, 1),
+        cc(1, 2),
+        cc(2, 1),
         cc(2, 2),
-        cc(2, 3),
-        cc(3, 2),
-        cc(3, 3),
       ],
       PlayerColor.yellow: [
-        cc(2, 11),
+        cc(1, 12),
+        cc(1, 13),
         cc(2, 12),
-        cc(3, 11),
-        cc(3, 12),
+        cc(2, 13),
       ],
       PlayerColor.blue: [
-        cc(11, 11),
-        cc(11, 12),
-        cc(12, 11),
         cc(12, 12),
+        cc(12, 13),
+        cc(13, 12),
+        cc(13, 13),
       ],
     };
   }

@@ -1,33 +1,4 @@
 {
-  "flutter": {
-    "platforms": {
-      "android": {
-        "default": {
-          "projectId": "tryb-ludo-v1",
-          "appId": "1:481131505194:android:681b9302127ab0f848c553",
-          "fileOutput": "android/app/google-services.json"
-        }
-      },
-      "ios": {
-        "default": {
-          "projectId": "tryb-ludo-v1",
-          "appId": "1:481131505194:ios:81c1cc2590263e9648c553",
-          "uploadDebugSymbols": false,
-          "fileOutput": "ios/Runner/GoogleService-Info.plist"
-        }
-      },
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "tryb-ludo-v1",
-          "configurations": {
-            "android": "1:481131505194:android:681b9302127ab0f848c553",
-            "ios": "1:481131505194:ios:81c1cc2590263e9648c553",
-            "web": "1:481131505194:web:a6927e28e932d11648c553"
-          }
-        }
-      }
-    }
-  },
   "functions": [
     {
       "source": "functions",
@@ -45,5 +16,19 @@
   ],
   "database": {
     "rules": "database.rules.json"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/invite",
+        "function": "handleInviteLink"
+      }
+    ]
   }
 }
