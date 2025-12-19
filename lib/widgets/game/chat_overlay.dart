@@ -128,21 +128,42 @@ class _ChatOverlayState extends State<ChatOverlay> {
     // Define positions based on Visual Index
     Offset bubblePos;
 
+    // Precise positioning relative to Avatars (from GameScreen logic)
+    // Avatar is at:
+    // BL (0): Left 16, Top boardTop + boardSize + 32
+    // TL (1): Left 16, Top boardTop - 64
+    // TR (2): Right 16, Top boardTop - 64
+    // BR (3): Right 16, Top boardTop + boardSize + 32
+    // Avatar width approx 60px.
+
+    final avatarLeft = 16.0;
+    final avatarRight = size.width - 16.0;
+    final avatarBottomTop = boardTop + boardSize + 32;
+    final avatarTopTop = boardTop - 64;
+
     switch (visualIndex) {
-      case 0: // Me (Bottom Left/Center)
-        bubblePos = Offset(60, boardTop + boardSize + 20);
+      case 0: // Me (Bottom Left) -> Bubble to RIGHT of Avatar
+        // Avatar is at (16, avatarBottomTop)
+        // Bubble should be at (16 + 60 + 10, avatarBottomTop)
+        bubblePos = Offset(avatarLeft + 60 + 8, avatarBottomTop);
         break;
-      case 1: // Left Player
-        bubblePos = Offset(40, boardTop + 100);
+      case 1: // Top Left -> Bubble to RIGHT of Avatar
+        // Avatar is at (16, avatarTopTop)
+        bubblePos = Offset(avatarLeft + 60 + 8, avatarTopTop);
         break;
-      case 2: // Top Player (Opponent)
-        bubblePos = Offset(size.width - 120, boardTop - 50);
+      case 2: // Top Right -> Bubble to LEFT of Avatar
+        // Avatar Right edge is at avatarRight
+        // Bubble Right edge should be at (avatarRight - 60 - 8)
+        // Since Positioned uses left/top usually, we calculate Left.
+        // But for static bubble we set right/left properties.
+        // Let's just set the anchor point here and handle alignment in Positioned.
+        bubblePos = Offset(avatarRight - 60 - 8, avatarTopTop);
         break;
-      case 3: // Right Player
-        bubblePos = Offset(size.width - 60, boardTop + 200);
+      case 3: // Bottom Right -> Bubble to LEFT of Avatar
+        bubblePos = Offset(avatarRight - 60 - 8, avatarBottomTop);
         break;
       default:
-        bubblePos = Offset(60, boardTop + boardSize + 20);
+        bubblePos = Offset(avatarLeft + 60 + 8, avatarBottomTop);
     }
 
     final flyStartPos = bubblePos;
@@ -154,9 +175,11 @@ class _ChatOverlayState extends State<ChatOverlay> {
       _staticBubbles.add({
         'id': bubbleId,
         'widget': Positioned(
-          left: bubblePos.dx < size.width / 2 ? bubblePos.dx : null,
-          right: bubblePos.dx >= size.width / 2
-              ? size.width - bubblePos.dx - 120
+          // If Visual Index is 0 (BL) or 1 (TL), Align Left (Bubble starts at bubblePos.dx)
+          // If Visual Index is 2 (TR) or 3 (BR), Align Right (Bubble ends at bubblePos.dx)
+          left: (visualIndex == 0 || visualIndex == 1) ? bubblePos.dx : null,
+          right: (visualIndex == 2 || visualIndex == 3)
+              ? size.width - bubblePos.dx // Distance from right edge
               : null,
           top: bubblePos.dy,
           child:

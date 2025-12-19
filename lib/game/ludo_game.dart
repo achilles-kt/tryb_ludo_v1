@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flame/game.dart';
+import 'package:flame/camera.dart';
+import 'package:flame/components.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +12,8 @@ import 'board_layout.dart';
 import 'board_component.dart';
 import 'token_component.dart';
 import 'view_rotation.dart';
+import 'logic/ludo_rules.dart';
+import 'state/game_controller.dart';
 
 enum TurnOwner { bottomLeft, topLeft, topRight, bottomRight }
 
@@ -35,11 +39,15 @@ class LudoGame extends FlameGame {
   ViewRotation? _viewRotation;
 
   // State Notifiers
+  // State Notifiers
   final diceValueNotifier = ValueNotifier<int>(1);
   final currentTurnUidNotifier = ValueNotifier<String?>(null);
   final turnOwnerNotifier = ValueNotifier<TurnOwner>(TurnOwner.bottomLeft);
   final isRollingNotifier = ValueNotifier<bool>(false);
   final gameEndNotifier = ValueNotifier<GameEndState?>(null);
+
+  // Central State Controller (Phase 2)
+  final GameController controller = GameController();
 
   LudoGame({
     required this.gameId,
@@ -51,10 +59,34 @@ class LudoGame extends FlameGame {
 
   @override
   Future<void> onLoad() async {
+    // scale-to-fit: Explicitly tell camera to frame the board area + buffer for glows
+    // The blur effect extends outside the 340x340 grid, so we need a slightly larger view.
+    const double buffer = 20.0;
+    camera.viewfinder.visibleGameSize =
+        Vector2(BoardLayout.boardSize + buffer, BoardLayout.boardSize + buffer);
+    camera.viewfinder.position =
+        Vector2(BoardLayout.boardSize / 2, BoardLayout.boardSize / 2);
+    camera.viewfinder.anchor = Anchor.center;
+
     await super.onLoad();
 
     // Add board
-    _board = BoardComponent();
+    // Add board with dynamic color resolution
+    _board = BoardComponent(
+      colorResolver: (visualSeat) {
+        if (_viewRotation != null) {
+          return _viewRotation!.getColorForVisualSeat(visualSeat);
+        }
+        // Default colors while loading
+        return switch (visualSeat) {
+          0 => PlayerColor.red,
+          1 => PlayerColor.green,
+          2 => PlayerColor.yellow,
+          3 => PlayerColor.blue,
+          _ => PlayerColor.red,
+        };
+      },
+    );
     await add(_board);
 
     // Subscribe to game state
@@ -77,7 +109,11 @@ class LudoGame extends FlameGame {
     final data = event.snapshot.value;
     if (data == null || data is! Map) return;
 
-    _currentGameState = Map<String, dynamic>.from(data);
+    _processGameState(Map<String, dynamic>.from(data));
+  }
+
+  void _processGameState(Map<String, dynamic> data) {
+    _currentGameState = data;
 
     // Extract game state
     final board = _currentGameState?['board'] as Map?;
@@ -90,6 +126,20 @@ class LudoGame extends FlameGame {
     // Update notifiers
     currentTurnUidNotifier.value = turn;
     diceValueNotifier.value = diceValue;
+
+    // Phase 2: Sync Controller
+    controller.updateDice(diceValue);
+    controller.setTurn(turn);
+
+    // Logic Fix: Only sync 'rolling' state if we are NOT locally controlling the animation.
+    // If we initiated the roll, we want to enforce the minimum duration (e.g. 1s).
+    if (!isRollingNotifier.value) {
+      if (_currentGameState?['turnPhase'] == 'rollingAnim') {
+        controller.setRolling(true);
+      } else {
+        controller.setRolling(false);
+      }
+    }
 
     // Map players to colors if not done
     if (_playerColors.isEmpty && players != null) {
@@ -111,6 +161,11 @@ class LudoGame extends FlameGame {
 
       // Initialize tokens for all players once colors are known
       _initializeTokens(players);
+
+      debugPrint('🎨 Player Colors Initialized: $_playerColors');
+      debugPrint(
+          '🎨 Local Player (${localUid}) Color: ${_playerColors[localUid]}');
+      debugPrint('🎨 Local Player Data: ${players[localUid]}');
     }
 
     // Map turn UID to TurnOwner using view rotation
@@ -132,6 +187,7 @@ class LudoGame extends FlameGame {
     // Update tokens
     if (board != null) {
       _updateTokens(board);
+      controller.updateBoard(board);
     }
 
     // Check if game is completed
@@ -166,6 +222,7 @@ class LudoGame extends FlameGame {
     }
 
     onMoveCompleted?.call();
+    controller.updateState(state);
   }
 
   void _initializeTokens(Map players) {
@@ -173,16 +230,22 @@ class LudoGame extends FlameGame {
       final playerId = uid as String;
       if (!_tokens.containsKey(playerId)) {
         _tokens[playerId] = [];
-        // Use BOARD color (based on visual seat) for token positioning
-        // This ensures tokens appear at correct rotated positions
-        final boardColor =
+        // Use ACTUAL player color (from server), not the visual seat color.
+        // This ensures identity consistency (e.g. Green Player is Green everywhere).
+        final visualColor = _playerColors[playerId] ?? PlayerColor.red;
+
+        // Use BOARD color (based on seat) for positioning.
+        // This ensures the token goes to the correct corner (e.g. Bottom-Left for Seat 0).
+        final logicColor =
             _viewRotation?.getBoardColorForPlayer(playerId) ?? PlayerColor.red;
 
         for (int i = 0; i < 4; i++) {
           final token = TokenComponent(
             ownerUid: playerId,
             tokenIndex: i,
-            color: boardColor, // Use board color for positioning
+            visualColor: visualColor,
+            logicColor: logicColor,
+            controller: controller,
             initialPositionIndex: -1,
           );
           _tokens[playerId]!.add(token);
@@ -194,22 +257,8 @@ class LudoGame extends FlameGame {
 
   void _updateTokens(Map board) {
     // Track position changes and trigger animations
-    board.forEach((playerId, positions) {
-      if (positions is! List) return;
-
-      final playerTokens = _tokens[playerId];
-      if (playerTokens == null) return;
-
-      for (int i = 0; i < positions.length && i < playerTokens.length; i++) {
-        final newPos = positions[i] as int;
-        final oldPos = playerTokens[i].positionIndex;
-
-        if (newPos != oldPos) {
-          // Position changed - animate
-          playerTokens[i].animateToPosition(newPos, oldPos);
-        }
-      }
-    });
+    // Legacy Loop Removed (Phase 3: Tokens subscribe to Controller)
+    // board.forEach((playerId, positions) { ... });
 
     // Now detect and handle stacks (after animations start)
     _detectAndApplyStacks();
@@ -281,6 +330,7 @@ class LudoGame extends FlameGame {
 
       // Frontend-First Animation: Start immediately
       isRollingNotifier.value = true;
+      controller.setRolling(true);
       final startTime = DateTime.now();
 
       final callable = FirebaseFunctions.instance.httpsCallable('rollDiceV2');
@@ -299,6 +349,10 @@ class LudoGame extends FlameGame {
 
       // Animation stops when backend update arrives (via _onGameUpdate)
       isRollingNotifier.value = false;
+      controller.setRolling(false);
+
+      // Force a final state sync in case the stream update was ignored during the roll
+      controller.updateState(state);
     } catch (e) {
       isRollingNotifier.value = false;
       if (e is FirebaseFunctionsException) {
@@ -335,28 +389,9 @@ class LudoGame extends FlameGame {
   }
 
   bool _canMove(TokenComponent token, int diceValue) {
-    final pos = token
-        .positionIndex; // Assuming TokenComponent has this getter exposed or I need to add it
-    // TokenComponent definition in file is not fully visible, but _updateTokens uses updatePositionIndex.
-    // I should check TokenComponent to ensure I can access position.
-    // Assuming I can access 'currentPositionIndex' or similar.
-    // Wait, I need to check TokenComponent.
-    // For now, I'll assume I can access it via a getter I'll add or existing one.
-    // Let's assume 'token.currentPositionIndex'.
-
-    // Logic:
-    // -1 (Yard): Needs 6.
-    if (pos == -1) {
-      return diceValue == 6;
-    }
-
-    // Track (0-51) or Home (52-57)
-    // Max is 57.
-    if (pos + diceValue <= 57) {
-      return true;
-    }
-
-    return false;
+    // Pure Logic Delegation
+    // Phase 1: Separation of Logic
+    return LudoRules.canMove(token.positionIndex, diceValue);
   }
 
   // Called by TokenComponent when tapped

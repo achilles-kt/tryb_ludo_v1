@@ -6,10 +6,12 @@ import '../game/ludo_game.dart';
 import '../widgets/game/end_game_overlay.dart';
 import '../widgets/chat_sheet.dart';
 import '../state/game_state.dart';
-import '../widgets/dice_widget.dart';
+import '../state/game_state.dart';
 import '../widgets/gold_balance_widget.dart';
 
 import '../widgets/game/chat_overlay.dart';
+import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
+import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
 
 class GameScreen extends StatefulWidget {
   final String gameId;
@@ -81,11 +83,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           final screenW = constraints.maxWidth;
           final screenH = constraints.maxHeight;
 
-          // Board is a square ~90% of width
-          final boardSize = screenW * 0.90;
+          // Define safe area for board
+          // TopBar is ~80px, BottomArea is ~100px.
+          // Add padding (24px top, 24px bottom).
+          final safeHeight = screenH - 180;
 
-          // Push board slightly up
-          final boardTop = (screenH - boardSize) / 2 - 20;
+          // Board is a square. Constrain by width (90%) AND available height.
+          final boardSize = (screenW * 0.90).clamp(0.0, safeHeight);
+
+          // Center board vertically in the safe zone
+          // But bias slightly upwards (-20) as before if space allows
+          final availableVerticalSpace = screenH - boardSize;
+          final boardTop = (availableVerticalSpace / 2 - 20)
+              .clamp(80.0, screenH - boardSize - 80.0);
           final boardLeft = (screenW - boardSize) / 2;
 
           return Stack(
@@ -105,7 +115,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 width: boardSize,
                 height: boardSize,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(16),
                   child: GameWidget(game: game),
                 ),
               ),
@@ -159,83 +169,86 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildDice(double boardLeft, double boardTop, double boardSize) {
-    final state = game.state;
-    final isYourTurn = state.currentPlayer == state.localPlayerIndex;
-    final phase = state.turnPhase;
-    // ... Dice logic same as before ...
-    // To save space in this prompt, I will copy the logic:
+    // Phase 2: Listen to Central Controller
+    return ValueListenableBuilder<GameState>(
+      valueListenable: game.controller.gameState,
+      builder: (context, state, _) {
+        final isYourTurn = state.currentPlayer == state.localPlayerIndex;
+        final phase = state.turnPhase;
+        final isRolling =
+            game.controller.isRolling.value; // Combined source for now
 
-    double targetLeft;
-    double targetTop;
-    double targetSize = 56; // Standard size
+        double targetLeft;
+        double targetTop;
+        double targetSize = 56; // Standard size
 
-    bool isCenter = phase == TurnPhase.rollingAnim;
+        bool isCenter = phase == TurnPhase.rollingAnim || isRolling;
 
-    if (isCenter) {
-      targetLeft = boardLeft + boardSize / 2 - 60;
-      targetTop = boardTop + boardSize / 2 - 60;
-      targetSize = 120;
-    } else {
-      // Calculate visual seat of the current turn owner
-      final int serverSeat = state.currentPlayer;
-      final int localSeat = state.localPlayerIndex;
-      final int visualSeat = (serverSeat - localSeat + 4) % 4;
+        if (isCenter) {
+          targetLeft = boardLeft + boardSize / 2 - 60;
+          targetTop = boardTop + boardSize / 2 - 60;
+          targetSize = 120;
+        } else {
+          // Calculate visual seat of the current turn owner
+          final int serverSeat = state.currentPlayer;
+          final int localSeat = state.localPlayerIndex;
+          final int visualSeat = (serverSeat - localSeat + 4) % 4;
 
-      final double screenW = MediaQuery.of(context).size.width;
+          final double screenW = MediaQuery.of(context).size.width;
 
-      switch (visualSeat) {
-        case 0: // Bottom-Left (Me)
-          // Right of Avatar
-          targetLeft = 16 + 44 + 12;
-          targetTop = boardTop + boardSize + 32;
-          targetSize = 64; // Larger for me
-          break;
-        case 1: // Top-Left
-          // Right of Avatar
-          targetLeft = 16 + 44 + 12;
-          targetTop = boardTop - 64;
-          targetSize = 48;
-          break;
-        case 2: // Top-Right
-          // Left of Avatar
-          targetLeft = screenW - 16 - 44 - 12 - 48;
-          targetTop = boardTop - 64;
-          targetSize = 48;
-          break;
-        case 3: // Bottom-Right
-          // Left of Avatar
-          targetLeft = screenW - 16 - 44 - 12 - 48;
-          targetTop = boardTop + boardSize + 32;
-          targetSize = 48;
-          break;
-        default:
-          targetLeft = 24;
-          targetTop = boardTop + boardSize + 24;
-      }
-    }
-
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
-      left: targetLeft,
-      top: targetTop,
-      width: targetSize,
-      height: targetSize,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          if (isYourTurn && phase == TurnPhase.waitingRoll) {
-            game.rollDice();
+          switch (visualSeat) {
+            case 0: // Bottom-Left (Me)
+              // Right of Avatar
+              targetLeft = 16 + 44 + 12;
+              targetTop = boardTop + boardSize + 32;
+              targetSize = 64; // Larger for me
+              break;
+            case 1: // Top-Left
+              // Right of Avatar
+              targetLeft = 16 + 44 + 12;
+              targetTop = boardTop - 64;
+              targetSize = 48;
+              break;
+            case 2: // Top-Right
+              // Left of Avatar
+              targetLeft = screenW - 16 - 44 - 12 - 48;
+              targetTop = boardTop - 64;
+              targetSize = 48;
+              break;
+            case 3: // Bottom-Right
+              // Left of Avatar
+              targetLeft = screenW - 16 - 44 - 12 - 48;
+              targetTop = boardTop + boardSize + 32;
+              targetSize = 48;
+              break;
+            default:
+              targetLeft = 24;
+              targetTop = boardTop + boardSize + 24;
           }
-        },
-        child: _AnimatedDice(
-          isRolling: phase == TurnPhase.rollingAnim,
-          value: state.dice,
-          timeLeft: phase == TurnPhase.waitingRoll ? state.turnTimeLeft : 0,
-          size: targetSize,
-          isBlank: phase == TurnPhase.waitingRoll,
-        ),
-      ),
+        }
+
+        return AnimatedPositioned(
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeInOut,
+          left: targetLeft,
+          top: targetTop,
+          width: targetSize,
+          height: targetSize,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              if (isYourTurn && phase == TurnPhase.waitingRoll) {
+                game.rollDice();
+              }
+            },
+            child: DiceSpriteWidget(
+              controller: game.controller,
+              size: targetSize,
+              timeLeft: phase == TurnPhase.waitingRoll ? state.turnTimeLeft : 0,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -275,80 +288,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         isTeam: meta.isTeam,
         isYou: meta.isYou,
         glowColor: meta.glowColor,
-      ),
-    );
-  }
-}
-
-class _AnimatedDice extends StatefulWidget {
-  final bool isRolling;
-  final int value;
-  final double timeLeft;
-  final double size;
-  final bool isBlank;
-
-  const _AnimatedDice({
-    required this.isRolling,
-    required this.value,
-    required this.timeLeft,
-    required this.size,
-    this.isBlank = false,
-  });
-
-  @override
-  State<_AnimatedDice> createState() => _AnimatedDiceState();
-}
-
-class _AnimatedDiceState extends State<_AnimatedDice>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
-  }
-
-  @override
-  void didUpdateWidget(_AnimatedDice oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isRolling && !oldWidget.isRolling) {
-      _controller.repeat();
-    } else if (!widget.isRolling && oldWidget.isRolling) {
-      _controller.stop();
-      _controller.value = 0;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final angle = _controller.value * 2 * 3.14159;
-        return Transform(
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.002)
-            ..rotateX(angle)
-            ..rotateY(angle * 1.5),
-          alignment: Alignment.center,
-          child: child,
-        );
-      },
-      child: DiceWidget(
-        size: widget.size,
-        value: widget.value,
-        timeLeft: widget.timeLeft,
-        isBlank: widget.isBlank,
       ),
     );
   }

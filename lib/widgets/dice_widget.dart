@@ -29,10 +29,9 @@ class DiceWidget extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Circular turn timer ring
             Positioned.fill(
               child: CustomPaint(
-                painter: _TimerPainter(progress: timeLeft.clamp(0.0, 1.0)),
+                painter: DiceTimerPainter(progress: timeLeft.clamp(0.0, 1.0)),
               ),
             ),
 
@@ -55,10 +54,10 @@ class DiceWidget extends StatelessWidget {
 }
 
 /// Timer arc painter
-class _TimerPainter extends CustomPainter {
+class DiceTimerPainter extends CustomPainter {
   final double progress; // 0.0 to 1.0
 
-  const _TimerPainter({required this.progress});
+  const DiceTimerPainter({required this.progress});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -84,7 +83,7 @@ class _TimerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TimerPainter oldDelegate) {
+  bool shouldRepaint(DiceTimerPainter oldDelegate) {
     return oldDelegate.progress != progress;
   }
 }

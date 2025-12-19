@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 
 import 'board_layout.dart';
 import 'ludo_game.dart';
+import 'state/game_controller.dart';
 
 class TokenComponent extends PositionComponent with TapCallbacks {
   final String ownerUid;
   final int tokenIndex;
-  final PlayerColor color;
+  final PlayerColor visualColor; // What it LOOKS like
+  final PlayerColor logicColor; // Where it GOES
+  final GameController controller;
 
   int _logicalPos; // -1 = yard, 0..51 = main, 52..57 = home
 
@@ -21,7 +24,9 @@ class TokenComponent extends PositionComponent with TapCallbacks {
   TokenComponent({
     required this.ownerUid,
     required this.tokenIndex,
-    required this.color,
+    required this.visualColor,
+    required this.logicColor,
+    required this.controller,
     required int initialPositionIndex,
   })  : _logicalPos = initialPositionIndex,
         super(size: Vector2.all(18));
@@ -33,6 +38,33 @@ class TokenComponent extends PositionComponent with TapCallbacks {
     anchor = Anchor.center;
     _updateWorldPosition();
     _setupPulseAnimation();
+
+    // Subscribe to Board State
+    controller.boardState.addListener(_onBoardStateChanged);
+  }
+
+  @override
+  void onRemove() {
+    controller.boardState.removeListener(_onBoardStateChanged);
+    super.onRemove();
+  }
+
+  void _onBoardStateChanged() {
+    final board = controller.boardState.value;
+    final myPositions = board[ownerUid];
+
+    if (myPositions is! List) return;
+    if (tokenIndex >= myPositions.length) return;
+
+    final newPos = myPositions[tokenIndex] as int;
+
+    // Check if position actually changed
+    if (newPos != _logicalPos) {
+      // Animate!
+      // Note: We need 'fromIndex' to decide animation direction.
+      // Current _logicalPos IS the 'fromIndex'.
+      animateToPosition(newPos, _logicalPos);
+    }
   }
 
   void _setupPulseAnimation() {
@@ -56,7 +88,7 @@ class TokenComponent extends PositionComponent with TapCallbacks {
     if (fromIndex >= 0 && newIndex > fromIndex) {
       // Get path positions
       final path = BoardLayout.getPathPositions(
-        color,
+        logicColor,
         fromIndex,
         newIndex,
         tokenIndexForYard: tokenIndex,
@@ -107,7 +139,7 @@ class TokenComponent extends PositionComponent with TapCallbacks {
   void _updateWorldPosition() {
     // Use tokenIndex for yard slot disambiguation
     final pos = BoardLayout.positionFor(
-      color,
+      logicColor,
       _logicalPos,
       tokenIndexForYard: tokenIndex,
     );
@@ -137,20 +169,20 @@ class TokenComponent extends PositionComponent with TapCallbacks {
       final glowRadius = radius * pulseScale;
 
       final pulseGlow = Paint()
-        ..color = _colorForPlayer(color).withOpacity(0.8)
+        ..color = _colorForPlayer(visualColor).withOpacity(0.8)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12 * pulseScale);
       canvas.drawCircle(center, glowRadius, pulseGlow);
     } else {
       // Normal Neon Glow
       final glowPaint = Paint()
-        ..color = _colorForPlayer(color).withOpacity(0.6)
+        ..color = _colorForPlayer(visualColor).withOpacity(0.6)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
       canvas.drawCircle(center, radius, glowPaint);
     }
 
     // Body
     final paint = Paint()
-      ..color = _colorForPlayer(color)
+      ..color = _colorForPlayer(visualColor)
       ..style = PaintingStyle.fill;
     canvas.drawCircle(center, radius, paint);
 

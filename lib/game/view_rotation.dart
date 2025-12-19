@@ -91,6 +91,18 @@ class ViewRotation {
     return _colorForSeat(visualSeat);
   }
 
+  /// Gets the actual color of the player sitting at a given visual seat.
+  /// Used for painting the board base dynamically.
+  PlayerColor getColorForVisualSeat(int visualSeat) {
+    final uid = getPlayerAtVisualSeat(visualSeat);
+    if (uid != null) {
+      return getColorForPlayer(uid);
+    }
+    // Fallback if no player (e.g. 2P game vacant spots)
+    // We retain the classic colors for vacant spots to keep the board look standard
+    return _colorForSeat(visualSeat);
+  }
+
   /// Fallback: converts seat to color (old system).
   PlayerColor _colorForSeat(int seat) {
     return switch (seat) {

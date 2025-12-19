@@ -214,28 +214,28 @@ class BoardLayout {
     Vector2 cc(int row, int col) => cellCenter(row, col);
     return {
       PlayerColor.red: [
-        cc(12, 1),
+        cc(11, 2),
+        cc(11, 3),
         cc(12, 2),
-        cc(13, 1),
-        cc(13, 2),
+        cc(12, 3),
       ],
       PlayerColor.green: [
-        cc(1, 1),
-        cc(1, 2),
-        cc(2, 1),
         cc(2, 2),
+        cc(2, 3),
+        cc(3, 2),
+        cc(3, 3),
       ],
       PlayerColor.yellow: [
-        cc(1, 12),
-        cc(1, 13),
+        cc(2, 11),
         cc(2, 12),
-        cc(2, 13),
+        cc(3, 11),
+        cc(3, 12),
       ],
       PlayerColor.blue: [
+        cc(11, 11),
+        cc(11, 12),
+        cc(12, 11),
         cc(12, 12),
-        cc(12, 13),
-        cc(13, 12),
-        cc(13, 13),
       ],
     };
   }
