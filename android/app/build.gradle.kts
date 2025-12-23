@@ -50,6 +50,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["firebase_analytics_collection_enabled"] = "false"
+        manifestPlaceholders["google_analytics_adid_collection_enabled"] = "false"
     }
 
     buildTypes {

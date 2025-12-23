@@ -57,6 +57,7 @@
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>tryb</string>
+                <string>com.googleusercontent.apps.481131505194-dcmf3ag1vo6flk7ln3urevduj85md5cs</string>
             </array>
         </dict>
     </array>

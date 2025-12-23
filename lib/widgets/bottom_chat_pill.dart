@@ -14,7 +14,8 @@ class BottomChatPill extends StatelessWidget {
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter),
       ),
-      child: Center(
+      child: Align(
+        alignment: Alignment.topCenter,
         child: GestureDetector(
           onTap: () => _openChat(context),
           child: Container(

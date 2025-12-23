@@ -28,6 +28,12 @@ export async function applyWalletDelta(
         const before = Number(current[currency] || 0);
         const after = before + delta;
 
+        // Track Lifetime Earnings for Levels
+        let totalEarned = Number(current.totalEarned || 0);
+        if (currency === 'gold' && delta > 0 && type !== 'refund') {
+            totalEarned += delta;
+        }
+
         console.log(`TRX_ATTEMPT: ${uid} | CurrentVal: ${JSON.stringify(current)} | Before: ${before} | After: ${after}`);
 
         if (after < 0) {
@@ -38,6 +44,7 @@ export async function applyWalletDelta(
         return {
             ...current,
             [currency]: after,
+            totalEarned: totalEarned, // Persist lifetime stats
             updatedAt: Date.now(),
         };
     });

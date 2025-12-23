@@ -48,7 +48,7 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
   @override
   void initState() {
     super.initState();
-    print('🔍 DEBUG: WaitingMatchModal called for mode: ${widget.mode}');
+    debugPrint('🔍 DEBUG: WaitingMatchModal called for mode: ${widget.mode}');
     if (widget.mockMode) {
       Future.delayed(widget.mockDelay, () {
         _onPairedMock();
@@ -69,7 +69,8 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
     }
 
     try {
-      print('WaitingMatchModal picked | UID: $_uid | Mode: ${widget.mode}');
+      debugPrint(
+          'WaitingMatchModal picked | UID: $_uid | Mode: ${widget.mode}');
       setState(() {
         _isLoading = true;
         _statusText = widget.mode == '4p'
@@ -124,7 +125,7 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
           } else if (status == 'queued_team') {
             // Transition to Stage 2
             final teamId = v['teamId'];
-            print(
+            debugPrint(
                 '🔍 DEBUG: userQueueStatus update | TeamID: $teamId | Status: queued_team');
             final tName = v['teammateName']?.toString();
             if (mounted) {

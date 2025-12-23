@@ -347,11 +347,16 @@ class LudoGame extends FlameGame {
         await Future.delayed(Duration(milliseconds: 1000 - elapsed));
       }
 
-      // Animation stops when backend update arrives (via _onGameUpdate)
-      isRollingNotifier.value = false;
+      // 1. Stop Animation (Show Face)
       controller.setRolling(false);
 
-      // Force a final state sync in case the stream update was ignored during the roll
+      // 2. Center Pause (0.25s) - Requirement: "Stays in center for 0.25s then comes to profile"
+      await Future.delayed(const Duration(milliseconds: 250));
+
+      // 3. Release Position (Move to Profile)
+      isRollingNotifier.value = false;
+
+      // Force a final state sync
       controller.updateState(state);
     } catch (e) {
       isRollingNotifier.value = false;
@@ -591,6 +596,7 @@ class LudoGame extends FlameGame {
       localPlayerIndex: localPlayerIndex,
       turnTimeLeft: timeLeft,
       turnPhase: phase,
+      turnDeadlineTs: deadline,
       players: _currentGameState?['players'] != null
           ? Map<String, dynamic>.from(_currentGameState!['players'])
           : {},

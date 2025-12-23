@@ -8,6 +8,7 @@ class GameState {
   final int currentPlayer; // 0-3
   final int localPlayerIndex; // 0-3
   final double turnTimeLeft; // 0.0 - 1.0 or seconds
+  final int? turnDeadlineTs;
   final TurnPhase turnPhase;
   final Map<String, dynamic> players;
 
@@ -19,6 +20,7 @@ class GameState {
     required this.turnTimeLeft,
     required this.turnPhase,
     required this.players,
+    this.turnDeadlineTs,
   });
 
   // Factory for empty/initial state

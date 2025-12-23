@@ -11,7 +11,6 @@ import '../widgets/gold_balance_widget.dart';
 
 import '../widgets/game/chat_overlay.dart';
 import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
-import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
 
 class GameScreen extends StatefulWidget {
   final String gameId;
@@ -48,7 +47,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       onGameOver: _showEndScreen,
     );
 
-    print('Game Screen Open and visible | Success | $uid');
+    debugPrint('Game Screen Open and visible | Success | $uid');
 
     // Refresh UI periodically for timer animation/game loop sync
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
@@ -175,8 +174,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       builder: (context, state, _) {
         final isYourTurn = state.currentPlayer == state.localPlayerIndex;
         final phase = state.turnPhase;
-        final isRolling =
-            game.controller.isRolling.value; // Combined source for now
+        final isRolling = game
+            .isRollingNotifier.value; // Use local notifier for Position logic
 
         double targetLeft;
         double targetTop;
@@ -244,7 +243,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             child: DiceSpriteWidget(
               controller: game.controller,
               size: targetSize,
-              timeLeft: phase == TurnPhase.waitingRoll ? state.turnTimeLeft : 0,
+              timeLeft: _calculateTimeLeft(state),
             ),
           ),
         );
@@ -290,6 +289,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         glowColor: meta.glowColor,
       ),
     );
+  }
+
+  double _calculateTimeLeft(GameState state) {
+    if (state.turnPhase != TurnPhase.waitingRoll) return 0.0;
+    if (state.turnDeadlineTs == null) return 0.0;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final total = 10000; // 10s (Matches backend)
+    final remaining = state.turnDeadlineTs! - now;
+    return (remaining / total).clamp(0.0, 1.0);
   }
 }
 

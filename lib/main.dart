@@ -14,7 +14,8 @@ Future<void> main() async {
   );
 
   // Initialize Notification Service (FCM)
-  await NotificationService.initialize();
+  // Initialize Notification Service (FCM) - Don't await to avoid blocking UI
+  NotificationService.initialize();
 
   runApp(const MyApp());
 }

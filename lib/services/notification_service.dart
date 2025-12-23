@@ -59,10 +59,29 @@ class NotificationService {
   }
 
   static Future<void> updateToken(String uid) async {
-    String? token = await _messaging.getToken();
-    if (token != null) {
-      debugPrint("FCM Token: $token");
-      await FirebaseDatabase.instance.ref('users/$uid/fcmToken').set(token);
+    try {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        // Attempt to get APNS token with a small retry
+        String? apnsToken = await _messaging.getAPNSToken();
+        if (apnsToken == null) {
+          debugPrint("APNS token not ready, waiting...");
+          await Future.delayed(const Duration(seconds: 3));
+          apnsToken = await _messaging.getAPNSToken();
+          if (apnsToken == null) {
+            debugPrint(
+                "Warning: APNS token still null. Skipping FCM token fetch to avoid crash.");
+            return;
+          }
+        }
+      }
+
+      String? token = await _messaging.getToken();
+      if (token != null) {
+        debugPrint("FCM Token: $token");
+        await FirebaseDatabase.instance.ref('users/$uid/fcmToken').set(token);
+      }
+    } catch (e) {
+      debugPrint("Error fetching/saving FCM token: $e");
     }
   }
 }

@@ -25,6 +25,8 @@ import 'package:app_links/app_links.dart';
 import '../services/invite_service.dart';
 import '../widgets/invite_overlay.dart';
 import '../widgets/invite_waiting_modal.dart';
+import '../widgets/profile_edit_modal.dart';
+import '../widgets/user_profile_header.dart';
 
 class LobbyScreen extends StatefulWidget {
   final String? initialDeepLink;
@@ -298,6 +300,28 @@ class _LobbyScreenState extends State<LobbyScreen>
             ));
   }
 
+  void _openProfileModal(String currentName, String currentAvatar,
+      String currentCity, String currentCountry) {
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54, // Semi-transparent bg
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return ProfileEditModal(
+          currentName: currentName,
+          currentAvatar: currentAvatar,
+          currentCity: currentCity,
+          currentCountry: currentCountry,
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+    );
+  }
+
   @override
   void dispose() {
     _bgController.dispose();
@@ -482,9 +506,15 @@ class _LobbyScreenState extends State<LobbyScreen>
                     bottom: 120,
                     left: 0,
                     right: 0,
+                    height:
+                        120, // Constrain height to avoid blocking top touches
                     child: Center(child: _playBtn())),
                 const Positioned(
-                    bottom: 0, left: 0, right: 0, child: BottomChatPill()),
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 100, // Constrain height
+                    child: BottomChatPill()),
               ],
             ),
           ),
@@ -768,56 +798,13 @@ class _LobbyScreenState extends State<LobbyScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(children: [
-            Stack(children: [
-              ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.asset('assets/avatars/a1.png',
-                      width: 48, height: 48, fit: BoxFit.cover)),
-              Positioned(
-                  bottom: -2,
-                  right: -2,
-                  child: Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                        gradient: AppColors.primaryGrad,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2)),
-                    child: const Center(
-                        child: Text('12',
-                            style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white))),
-                  ))
-            ]),
-            const SizedBox(width: 12),
-            StreamBuilder<DatabaseEvent>(
-                stream: FirebaseDatabase.instance
-                    .ref('users/${_currentUser?.uid}/profile')
-                    .onValue,
-                builder: (context, snapshot) {
-                  final data = snapshot.data?.snapshot.value as Map?;
-                  final name = data?['displayName'] ?? 'New User';
-                  final city = data?['city'] ?? '';
-                  final country = data?['country'] ?? 'India';
-                  final location =
-                      city.toString().isEmpty ? country : '$city, $country';
+          UserProfileHeader(
+            currentUser: _currentUser,
+            onProfileTap: (name, avatar, city, country) {
+              _openProfileModal(name, avatar, city, country);
+            },
+          ),
 
-                  return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name,
-                            style: TextStyle(
-                                fontSize: 14, fontWeight: FontWeight.w700)),
-                        SizedBox(height: 2),
-                        Text(location,
-                            style: TextStyle(
-                                fontSize: 10, color: Color(0xFF94A3B8))),
-                      ]);
-                })
-          ]),
           // Currency Balances
           Row(
             children: const [
@@ -886,7 +873,7 @@ class _LobbyScreenState extends State<LobbyScreen>
         final uid = val['uid'];
         if (uid == myUid) return; // Don't show self
 
-        print('Table card in Lobby visible | $myUid | $uid');
+        debugPrint('Table card in Lobby visible | $myUid | $uid');
         listItems.add(
           TableCard(
             mode: '2P',
@@ -943,7 +930,7 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   void _handleQueueJoin(
       String pushId, int entryFee, int gemFee, String hostUid) {
-    print('Table Card Join clicked | ${_currentUser?.uid} | $hostUid');
+    debugPrint('Table Card Join clicked | ${_currentUser?.uid} | $hostUid');
     showDialog(
       context: context,
       builder: (_) => GemPayModal(

@@ -66,10 +66,11 @@ class DiceTimerPainter extends CustomPainter {
     final radius = size.width / 2;
 
     final arcPaint = Paint()
-      ..color = Colors.redAccent.withOpacity(0.6)
+      ..color = const Color(0xFF00FFFF).withOpacity(0.8) // Neon Cyan
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 4); // Glow effect
 
     // Draw arc from top, going clockwise
     final sweepAngle = 2 * math.pi * progress;

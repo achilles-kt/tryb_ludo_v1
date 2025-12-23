@@ -13,7 +13,28 @@
           "package_name": "com.example.tryb_ludo_v1"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "481131505194-03p0vfnf7n56nnnodu6qsmmi6vs0ib50.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tryb_ludo_v1",
+            "certificate_hash": "0f579cc31e20c918c1475223afb879f230717754"
+          }
+        },
+        {
+          "client_id": "481131505194-sfbg1ag972fj6qttq2e5sdkqn8a9icej.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.tryb_ludo_v1",
+            "certificate_hash": "46494de57ef2a1f73cf43e0c93ab7ddaaae1df38"
+          }
+        },
+        {
+          "client_id": "481131505194-tiua2lsvt0dhfh8q7fchorgfl379km9i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBiGdeLVKH_Jz_YYR036bcA7WwXnspxQmk"
@@ -21,7 +42,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "481131505194-tiua2lsvt0dhfh8q7fchorgfl379km9i.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "481131505194-dcmf3ag1vo6flk7ln3urevduj85md5cs.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.trybLudoV1"
+              }
+            }
+          ]
         }
       }
     },
@@ -32,7 +65,28 @@
           "package_name": "com.trybsocial.ludo"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "481131505194-9v0roedsm8lsu77mkc82l9uj8pjje9fm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.trybsocial.ludo",
+            "certificate_hash": "0f579cc31e20c918c1475223afb879f230717754"
+          }
+        },
+        {
+          "client_id": "481131505194-rjd61k1t9q8g4h87jdaanrs7c1qev89h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.trybsocial.ludo",
+            "certificate_hash": "46494de57ef2a1f73cf43e0c93ab7ddaaae1df38"
+          }
+        },
+        {
+          "client_id": "481131505194-tiua2lsvt0dhfh8q7fchorgfl379km9i.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBiGdeLVKH_Jz_YYR036bcA7WwXnspxQmk"
@@ -40,10 +94,23 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "481131505194-tiua2lsvt0dhfh8q7fchorgfl379km9i.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "481131505194-dcmf3ag1vo6flk7ln3urevduj85md5cs.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.trybLudoV1"
+              }
+            }
+          ]
         }
       }
     }
   ],
   "configuration_version": "1"
 }
+
