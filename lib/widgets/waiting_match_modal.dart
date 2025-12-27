@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../theme/app_theme.dart';
+import 'glass_container.dart';
 
 typedef OnPairedCallback = void Function({
   required String tableId,
@@ -238,202 +240,234 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
     super.dispose();
   }
 
-  Widget _buildBody() {
-    if (_isError) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 12),
-          Icon(Icons.error_outline, size: 36, color: Colors.redAccent),
-          const SizedBox(height: 12),
-          Text(_errorMessage ?? 'Unknown error', textAlign: TextAlign.center),
-          const SizedBox(height: 14),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context)
-                .pop({'cancelled': true, 'error': _errorMessage}),
-            child: const Text('Close'),
-          ),
-          const SizedBox(height: 8),
-        ],
-      );
-    }
-
-    if (widget.mode == '4p') {
-      return _build4PBody();
-    }
-
-    return _build2PBody();
-  }
-
-  // ----------------- 2P Layout -----------------
-  Widget _build2PBody() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(16),
+      child: GlassContainer(
+        borderRadius: 24,
+        padding: const EdgeInsets.all(24),
+        border:
+            Border.all(color: AppTheme.neonBlue.withOpacity(0.3), width: 1.5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _avatar('ME'),
-            const SizedBox(width: 12),
-            _vsText(),
-            const SizedBox(width: 12),
-            _avatar('?', isPlaceholder: true),
+            // Header
+            Text(
+              widget.mode == '4p' ? 'TEAM MATCHMAKING' : 'FINDING A MATCH',
+              style: AppTheme.header.copyWith(fontSize: 20, letterSpacing: 1.2),
+            ),
+            const SizedBox(height: 24),
+
+            // Body
+            _isError
+                ? _buildErrorBody()
+                : (widget.mode == '4p' ? _build4PBody() : _build2PBody()),
+
+            const SizedBox(height: 32),
+
+            // Status Text
+            if (!_isError) _buildStatusSection(),
           ],
         ),
-        _statusSection(),
-      ],
-    );
-  }
-
-  // ----------------- 4P Layout -----------------
-  Widget _build4PBody() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Left Team (Me + ?)
-            Column(
-              children: [
-                Row(children: [
-                  _avatar('ME', size: 24),
-                  const SizedBox(width: 4),
-                  _hasTeammate
-                      ? _avatar(
-                          _teammateName != null && _teammateName!.isNotEmpty
-                              ? _teammateName![0]
-                              : 'P2',
-                          size: 24)
-                      : _spinnerAvatar(size: 24)
-                ]),
-                const SizedBox(height: 4),
-                Text(_teammateName ?? "My Team",
-                    style: TextStyle(fontSize: 10, color: Colors.white54))
-              ],
-            ),
-
-            const SizedBox(width: 12),
-            _vsText(),
-            const SizedBox(width: 12),
-
-            // Right Team (Opponents)
-            Column(
-              children: [
-                Row(children: [
-                  _avatar('?', size: 24, isPlaceholder: true),
-                  const SizedBox(width: 4),
-                  _avatar('?', size: 24, isPlaceholder: true),
-                ]),
-                const SizedBox(height: 4),
-                const Text("Opponents",
-                    style: TextStyle(fontSize: 10, color: Colors.white54))
-              ],
-            ),
-          ],
-        ),
-        _statusSection(),
-      ],
-    );
-  }
-
-  Widget _statusSection() {
-    return Column(children: [
-      const SizedBox(height: 16),
-      Text(_statusText,
-          style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.white70)),
-      const SizedBox(height: 16),
-      if (_isLoading)
-        const SizedBox(
-          height: 30,
-          width: 30,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        )
-      else
-        const SizedBox(height: 30),
-      const SizedBox(height: 20),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          ElevatedButton.icon(
-            onPressed: _isLoading ? null : _leaveQueue,
-            icon: const Icon(Icons.close, size: 16),
-            label: const Text('Cancel'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-          ),
-        ],
       ),
-    ]);
+    );
   }
 
-  Widget _vsText() {
-    return Column(children: const [
-      Text('VS',
-          style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: Colors.white54,
-              fontStyle: FontStyle.italic)),
-    ]);
+  Widget _buildErrorBody() {
+    return Column(
+      children: [
+        Icon(Icons.error_outline, size: 48, color: AppTheme.neonRed),
+        const SizedBox(height: 16),
+        Text(_errorMessage ?? 'Unknown error',
+            textAlign: TextAlign.center,
+            style: AppTheme.text.copyWith(color: Colors.white70)),
+        const SizedBox(height: 24),
+        _neonButton(
+            "CLOSE", () => Navigator.of(context).pop({'cancelled': true})),
+      ],
+    );
+  }
+
+  Widget _buildStatusSection() {
+    return Column(
+      children: [
+        if (_isLoading)
+          Stack(alignment: Alignment.center, children: [
+            SizedBox(
+              width: 50,
+              height: 50,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.neonBlue),
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(
+              width: 30,
+              height: 30,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.neonPurple),
+                strokeWidth: 2,
+              ),
+            ),
+          ]),
+        const SizedBox(height: 20),
+        Text(_statusText,
+            textAlign: TextAlign.center,
+            style: AppTheme.label
+                .copyWith(fontSize: 14, color: AppTheme.neonBlue)),
+        const SizedBox(height: 24),
+        TextButton(
+          onPressed: _leaveQueue,
+          child: Text("CANCEL",
+              style: AppTheme.label.copyWith(color: Colors.white30)),
+        )
+      ],
+    );
+  }
+
+  // 2P Visuals
+  Widget _build2PBody() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _avatar('ME'),
+        const SizedBox(width: 16),
+        const Text("VS",
+            style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic,
+                fontSize: 24,
+                color: Colors.white24)),
+        const SizedBox(width: 16),
+        _avatar('?', isPlaceholder: true),
+      ],
+    );
+  }
+
+  // 4P Visuals
+  Widget _build4PBody() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // My Team
+        Column(
+          children: [
+            SizedBox(
+              width: 60,
+              height: 40,
+              child: Stack(
+                children: [
+                  _avatar('ME', size: 20),
+                  Positioned(
+                      left: 20,
+                      child: _hasTeammate
+                          ? _avatar(
+                              _teammateName != null && _teammateName!.isNotEmpty
+                                  ? _teammateName![0]
+                                  : 'P2',
+                              size: 20)
+                          : _spinnerAvatar(size: 20))
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(_teammateName ?? "Searching...",
+                style: AppTheme.label.copyWith(fontSize: 10))
+          ],
+        ),
+
+        const SizedBox(width: 16),
+        const Text("VS",
+            style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic,
+                fontSize: 24,
+                color: Colors.white24)),
+        const SizedBox(width: 16),
+
+        // Opponents
+        Column(
+          children: [
+            SizedBox(
+              width: 60,
+              height: 40,
+              child: Stack(
+                children: [
+                  _avatar('?', size: 20, isPlaceholder: true),
+                  Positioned(
+                      left: 20,
+                      child: _avatar('?', size: 20, isPlaceholder: true)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text("Opponents", style: AppTheme.label.copyWith(fontSize: 10))
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _avatar(String label, {double size = 28, bool isPlaceholder = false}) {
-    return CircleAvatar(
-      radius: size,
-      backgroundColor: isPlaceholder ? Colors.white10 : Colors.deepPurple,
+    return Container(
+      width: size * 2,
+      height: size * 2,
+      decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isPlaceholder ? Colors.white10 : AppTheme.bgDark,
+          border: Border.all(
+              color: isPlaceholder ? Colors.white10 : AppTheme.neonBlue,
+              width: 2),
+          boxShadow: isPlaceholder
+              ? null
+              : [
+                  BoxShadow(
+                      color: AppTheme.neonBlue.withOpacity(0.4), blurRadius: 10)
+                ]),
+      alignment: Alignment.center,
       child: Text(label,
           style: TextStyle(
-              fontSize: size * 0.6,
+              color: Colors.white,
               fontWeight: FontWeight.bold,
-              color: Colors.white)),
+              fontSize: size * 0.8)),
     );
   }
 
   Widget _spinnerAvatar({double size = 28}) {
     return Container(
-        width: size * 2,
-        height: size * 2,
-        decoration:
-            BoxDecoration(color: Colors.white10, shape: BoxShape.circle),
-        child: const Padding(
-            padding: EdgeInsets.all(12),
-            child: CircularProgressIndicator(
-                strokeWidth: 2, color: Colors.white30)));
+      width: size * 2,
+      height: size * 2,
+      decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white10, style: BorderStyle.none),
+          color: Colors.white10),
+      child: const Padding(
+        padding: EdgeInsets.all(10),
+        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white30),
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        child: Material(
-          color: const Color(0xFF0B0C10),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                    widget.mode == '4p'
-                        ? 'Team Matchmaking'
-                        : 'Finding a Match',
-                    style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white)),
-                const SizedBox(height: 8),
-                _buildBody(),
-              ],
-            ),
-          ),
-        ),
+  Widget _neonButton(String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        decoration: BoxDecoration(
+            gradient: AppTheme.primaryGrad,
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                  color: AppTheme.neonBlue.withOpacity(0.4),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4))
+            ]),
+        child: Text(label,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold, color: Colors.white)),
       ),
     );
   }

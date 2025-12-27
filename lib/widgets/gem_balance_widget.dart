@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../theme/app_theme.dart';
 
 /// Displays the user's current gem balance with real-time Firebase sync
 class GemBalanceWidget extends StatefulWidget {
@@ -77,13 +78,14 @@ class _GemBalanceWidgetState extends State<GemBalanceWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (inside build)
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: widget.backgroundColor ?? Colors.white.withOpacity(0.06),
+        color: Colors.black54,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: widget.borderColor ?? Colors.white.withOpacity(0.18),
+          color: Colors.white.withOpacity(0.1),
         ),
       ),
       child: Row(
@@ -92,7 +94,7 @@ class _GemBalanceWidgetState extends State<GemBalanceWidget> {
           const Icon(
             Icons.diamond,
             size: 16,
-            color: Colors.cyanAccent, // Gem color
+            color: AppTheme.neonBlue,
           ),
           const SizedBox(width: 6),
           _isLoading

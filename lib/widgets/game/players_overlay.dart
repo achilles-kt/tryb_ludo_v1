@@ -112,7 +112,9 @@ class PlayersOverlay extends StatelessWidget {
             : [],
         image: meta.avatarUrl != null
             ? DecorationImage(
-                image: NetworkImage(meta.avatarUrl!),
+                image: meta.avatarUrl!.startsWith('http')
+                    ? NetworkImage(meta.avatarUrl!)
+                    : AssetImage(meta.avatarUrl!) as ImageProvider,
                 fit: BoxFit.cover,
               )
             : null,

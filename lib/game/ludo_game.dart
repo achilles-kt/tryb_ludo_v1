@@ -116,11 +116,20 @@ class LudoGame extends FlameGame {
     _currentGameState = data;
 
     // Extract game state
+    final gameStateStr = _currentGameState?['state'] as String? ?? 'active';
+    final winnerUid = _currentGameState?['winnerUid'] as String?;
+
+    // Check if game is completed
+    if (gameStateStr == 'completed') {
+      _onGameCompleted(winnerUid);
+      // STOP processing turn/dice updates if game is over
+      return;
+    }
+
+    // Extract game state
     final board = _currentGameState?['board'] as Map?;
     final turn = _currentGameState?['turn'] as String?;
     final diceValue = _currentGameState?['diceValue'] as int? ?? 1;
-    final gameStateStr = _currentGameState?['state'] as String? ?? 'active';
-    final winnerUid = _currentGameState?['winnerUid'] as String?;
     final players = _currentGameState?['players'] as Map?;
 
     // Update notifiers
@@ -478,6 +487,7 @@ class LudoGame extends FlameGame {
     if (playerData == null) return null;
 
     return PlayerMeta(
+      uid: uid,
       name: playerData['name'] ?? 'Player',
       avatarUrl: playerData['avatarUrl'],
       isYou: uid == localUid,
@@ -521,6 +531,7 @@ class LudoGame extends FlameGame {
     }
 
     return PlayerMeta(
+      uid: uid,
       name: playerData['name'] ?? 'Player',
       avatarUrl: playerData['avatarUrl'],
       isYou: uid == localUid,
@@ -602,12 +613,15 @@ class LudoGame extends FlameGame {
           : {},
     );
   }
+
+  String? get winnerUid => _currentGameState?['winnerUid'] as String?;
 }
 
 // Helper classes for UI
 enum PlayerSpot { bottomLeft, topLeft, topRight, bottomRight, none }
 
 class PlayerMeta {
+  final String uid;
   final String? name;
   final String? avatarUrl;
   final bool isYou;
@@ -615,6 +629,7 @@ class PlayerMeta {
   final Color? glowColor;
 
   PlayerMeta({
+    required this.uid,
     this.name,
     this.avatarUrl,
     required this.isYou,

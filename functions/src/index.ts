@@ -17,6 +17,16 @@ import { onInviteCreated } from "./triggers/invite_triggers";
 import { joinSoloQueue, joinTeamQueue, processSoloQueue, processTeamQueue, attemptSoloPairing, attemptTeamPairing, debugForce4PProcess } from "./controllers/team_table";
 import { testTeamUpFlow, testTeamBotFallback, test2PFlow, testInviteFlow, testAllFlows } from "./controllers/simulation";
 import { handleInviteLink, checkDeferredLink } from "./controllers/deep_links";
+import { sendFriendRequest, respondToFriendRequest, removeFriend } from "./controllers/social";
+import { updateRecentPlayers, notifyFriendRequest } from "./triggers/social_triggers";
+import { verifySocialFlow } from "./test_social";
+import { registerPhone, syncContacts, backfillPhones } from "./controllers/contacts";
+import { startDM, sendMessage, sendMessageInternal, startDMInternal, getDmId } from "./controllers/chat";
+import { verifyContactFlow } from "./test_contacts";
+import { verifyChatFlow } from "./test_chat";
+import { onMessageCreated, onFriendRequest } from "./triggers/notification_triggers";
+import { maintainPhoneIndex } from "./triggers/contact_triggers";
+import { dailyMessageCleanup } from "./triggers/cleanup_triggers";
 
 export {
     createPrivateTable,
@@ -34,7 +44,24 @@ export {
     testInviteFlow,
     testAllFlows,
     handleInviteLink,
-    checkDeferredLink
+    checkDeferredLink,
+    sendFriendRequest,
+    respondToFriendRequest,
+    removeFriend,
+    updateRecentPlayers,
+    notifyFriendRequest,
+    verifySocialFlow,
+    registerPhone,
+    syncContacts,
+    maintainPhoneIndex,
+    backfillPhones,
+    verifyContactFlow,
+    startDM,
+    sendMessage,
+    verifyChatFlow,
+    onMessageCreated,
+    onFriendRequest,
+    dailyMessageCleanup
 };
 
 // ---------------------------------------------
@@ -1018,6 +1045,53 @@ export const onGameCompleted = functions.database
         await db.ref().update(updates);
 
         console.log(`💰 PAYOUT: Winner ${winnerUid} got ${winnerPayout} gold in game ${gameId}`);
+
+        // --- Activity Stream Injection (2P) ---
+        // Log "Game Result" to the DM between P1 and P2
+        if (playerUids.length === 2 && !playerUids.includes("BOT_PLAYER")) {
+            const p1 = playerUids[0];
+            const p2 = playerUids[1];
+            const convId = getDmId(p1, p2);
+
+            // Payload for the Unified Timeline
+            // Context: Source Game
+            // Payload: Score/Winner details
+            // We use 'system' as sender? Or 'winner'?
+            // Standard: 'system' or utilize the helper which expects a UID.
+            // If we use 'winnerUid', it looks like Winner posted it. That's fine.
+            // Or use a special "ACTIVITY_BOT" uid if we had one.
+            // For now, let's use the Winner's UID as the "Sender" of the "Victory" card.
+
+            // Construct score string if possible? Currently logic doesn't track score, just winner.
+            // But we know it's a win.
+
+            try {
+                // Ensure conversation exists (lazy init handled by sendMessageInternal hopefully? 
+                // No, sendMessageInternal expects it. startDMInternal handles create.)
+                // Let's call startDMInternal just in case, it's cheap.
+                await startDMInternal(p1, p2);
+
+                await sendMessageInternal(
+                    winnerUid, // Sender
+                    convId,
+                    null, // No Text
+                    'game_result',
+                    {
+                        winner: winnerUid === p1 ? 'Player 1' : 'Player 2', // TODO: Fetch Names?
+                        score: 'Winner', // Simple for now
+                        mode: '2 Player'
+                    },
+                    {
+                        gameId,
+                        tableId
+                    }
+                );
+                console.log(`📜 ACTIVITY: Logged Game Result to ${convId}`);
+            } catch (e) {
+                console.error("Failed to log activity", e);
+            }
+        }
+
         return null;
     });
 

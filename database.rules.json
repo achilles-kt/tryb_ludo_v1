@@ -4,6 +4,10 @@
             "$uid": {
                 ".read": "$uid === auth.uid",
                 ".write": "$uid === auth.uid",
+                "profile": {
+                    ".read": "auth != null",
+                    ".write": "$uid === auth.uid"
+                },
                 "gold": {
                     ".read": "$uid === auth.uid",
                     ".write": "false"
@@ -22,10 +26,16 @@
                 }
             }
         },
-        "walletHistory": {
+        "walletTransactions": {
             "$uid": {
                 ".read": "$uid === auth.uid",
-                ".write": "false"
+                "$txnId": {
+                    "meta": {
+                        "seen": {
+                            ".write": "$uid === auth.uid"
+                        }
+                    }
+                }
             }
         },
         "userQueueStatus": {
@@ -113,6 +123,60 @@
             ],
             "$inviteId": {
                 ".read": "auth != null && (data.child('hostUid').val() === auth.uid || data.child('guestUid').val() === auth.uid)",
+                ".write": "false"
+            }
+        },
+        "friends": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
+                ".write": "$uid === auth.uid"
+            }
+        },
+        "recentlyPlayed": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
+                ".write": "false",
+                ".indexOn": [
+                    "lastPlayedAt"
+                ]
+            }
+        },
+        "status": {
+            "$uid": {
+                ".read": "auth != null",
+                ".write": "$uid === auth.uid"
+            }
+        },
+        "phoneIndex": {
+            ".read": "false",
+            ".write": "false"
+        },
+        "suggestedFriends": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
+                ".write": "false"
+            }
+        },
+        "conversations": {
+            "$convId": {
+                ".read": "auth != null && data.child('participants').hasChild(auth.uid)",
+                ".write": "false",
+                "typing": {
+                    "$uid": {
+                        ".write": "$uid === auth.uid && root.child('conversations').child($convId).child('participants').hasChild(auth.uid)"
+                    }
+                }
+            }
+        },
+        "messages": {
+            "$convId": {
+                ".read": "auth != null && root.child('conversations').child($convId).child('participants').hasChild(auth.uid)",
+                ".write": "false"
+            }
+        },
+        "user_conversations": {
+            "$uid": {
+                ".read": "$uid === auth.uid",
                 ".write": "false"
             }
         },

@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:tryb_ludo_v1/firebase_options.dart';
-import 'package:tryb_ludo_v1/screens/lobby_screen.dart';
+import 'package:tryb_ludo_v1/screens/main_screen.dart';
 import 'package:tryb_ludo_v1/services/config_service.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -138,7 +138,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-            builder: (_) => LobbyScreen(initialDeepLink: deferredLink)),
+            builder: (_) => MainScreen(initialDeepLink: deferredLink)),
       );
     }
   }

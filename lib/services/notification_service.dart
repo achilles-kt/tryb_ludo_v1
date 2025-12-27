@@ -3,6 +3,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
+import '../widgets/notification_overlay.dart'; // For navigatorKey
+import '../screens/conversation_screen.dart';
+import '../screens/game_screen.dart';
 
 /// Top-level background handler
 @pragma('vm:entry-point')
@@ -13,6 +18,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 class NotificationService {
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+
+  // Stream for In-App Overlay
+  static final StreamController<RemoteMessage> _controller =
+      StreamController<RemoteMessage>.broadcast();
+  static Stream<RemoteMessage> get onNotificationReceived => _controller.stream;
 
   static Future<void> initialize() async {
     // 1. Set Background Handler
@@ -50,12 +60,75 @@ class NotificationService {
       debugPrint('Message data: ${message.data}');
 
       if (message.notification != null) {
-        debugPrint(
-            'Message also contained a notification: ${message.notification}');
-        // Note: For visible notifications in foreground, we might need flutter_local_notifications
-        // For now, we rely on the in-app UI (InviteOverlay) or just logs.
+        // Feed to Overlay
+        _controller.add(message);
       }
     });
+
+    // 6. Handle App Open from Background
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+
+    // 7. Handle App Launch from Terminated
+    _messaging.getInitialMessage().then((RemoteMessage? message) {
+      if (message != null) {
+        _handleMessage(message);
+      }
+    });
+  }
+
+  static Future<void> _handleMessage(RemoteMessage message) async {
+    debugPrint("Handling interaction: ${message.data}");
+    final data = message.data;
+    final type = data['type'];
+
+    // 1. Game Deep Link
+    // If notification has gameId, check if it's active
+    final gameId = data['gameId'];
+    if (gameId != null && gameId.toString().isNotEmpty) {
+      try {
+        final ref = FirebaseDatabase.instance.ref('games/$gameId');
+        final snap = await ref.get();
+        if (snap.exists) {
+          final gData = snap.value as Map;
+          final state = gData['state'];
+          final tableId = gData['tableId'] ?? 'unknown';
+
+          if (state == 'active') {
+            debugPrint(
+                "🔔 Deep Linking to Active Game: $gameId (Table: $tableId)");
+            navigatorKey.currentState?.push(
+              MaterialPageRoute(
+                builder: (_) => GameScreen(gameId: gameId, tableId: tableId),
+              ),
+            );
+            return; // Stop here, don't go to chat screen
+          } else {
+            debugPrint(
+                "🔔 Game $gameId is not active (State: $state). Redirecting to Chat.");
+          }
+        }
+      } catch (e) {
+        debugPrint("Error checking game state for deep link: $e");
+      }
+    }
+
+    // 2. Chat / Social Fallback
+    if (type == 'chat' || type == 'game_invite' || type == 'game_chat') {
+      final senderId = data['senderId'];
+      final senderName = data['senderName'];
+
+      if (senderId != null) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => ConversationScreen(
+              peerId: senderId,
+              peerName: senderName ?? 'Chat',
+              peerAvatar: data['senderAvatar'] ?? '',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   static Future<void> updateToken(String uid) async {

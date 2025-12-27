@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../game/ludo_game.dart';
+import '../../theme/app_theme.dart';
+import '../glass_container.dart';
+import '../../app.dart';
 
 class EndGameOverlay extends StatelessWidget {
   final LudoGame game;
@@ -14,77 +17,86 @@ class EndGameOverlay extends StatelessWidget {
 
         final isWin = state.isWin;
         final title = isWin ? 'VICTORY' : 'DEFEAT';
-        final titleColor = isWin
-            ? const Color(0xFF22C55E) // Neon Green
-            : const Color(0xFFFF0033); // Neon Red
+        final titleColor = isWin ? AppTheme.neonGreen : AppTheme.neonRed;
 
         return Scaffold(
-          backgroundColor: const Color.fromRGBO(10, 10, 10, 0.95),
+          backgroundColor: Colors.black.withOpacity(0.85),
           body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Title
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontFamily: 'Poppins', // Assuming available or fallback
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    color: titleColor,
-                    shadows: isWin
-                        ? [
-                            BoxShadow(
-                              color: const Color.fromRGBO(34, 197, 94, 0.5),
-                              blurRadius: 20,
-                            ),
-                          ]
-                        : [],
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Reward Text (Keeping existing logic but styling it)
-                if (state.rewardText.isNotEmpty)
+            child: GlassContainer(
+              borderRadius: 30,
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
+              margin: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Title
                   Text(
-                    state.rewardText,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+                    title,
+                    style: AppTheme.header.copyWith(
+                      fontSize: 36,
+                      color: titleColor,
+                      shadows: isWin
+                          ? [
+                              BoxShadow(
+                                color: titleColor.withOpacity(0.5),
+                                blurRadius: 30,
+                              ),
+                            ]
+                          : [],
                     ),
                   ),
+                  const SizedBox(height: 16),
 
-                const SizedBox(height: 48),
-
-                // Home Button
-                GestureDetector(
-                  onTap: () {
-                    // Pop Dialog
-                    Navigator.of(context).pop();
-                    // Pop GameScreen to return to Lobby
-                    Navigator.of(context).pop();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 30,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: const Text(
-                      'Back to Lobby',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
+                  // Reward Text
+                  if (state.rewardText.isNotEmpty)
+                    Text(
+                      state.rewardText,
+                      style: AppTheme.text.copyWith(
+                        color: Colors.white70,
                         fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+
+                  const SizedBox(height: 48),
+
+                  // Home Button
+                  GestureDetector(
+                    onTap: () {
+                      // Use explicit navigation to ensure we land on Lobby/AppShell
+                      // regardless of how we entered the game (e.g. Deep Link)
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (context) => AppShell()),
+                        (route) => false,
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                          gradient: AppTheme.primaryGrad,
+                          borderRadius: BorderRadius.circular(30),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.neonBlue.withOpacity(0.4),
+                              blurRadius: 15,
+                              offset: Offset(0, 4),
+                            )
+                          ]),
+                      child: Text(
+                        'Back to Lobby',
+                        style: AppTheme.text.copyWith(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

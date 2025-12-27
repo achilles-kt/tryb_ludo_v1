@@ -5,16 +5,15 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../widgets/gem_pay_modal.dart';
 import '../constants.dart';
+import '../theme/app_theme.dart';
 import '../widgets/table_card.dart';
 import '../widgets/bottom_chat_pill.dart';
 import '../widgets/play_sheet.dart';
 import '../widgets/pay_modal.dart';
 import 'game_screen.dart';
 import '../widgets/waiting_match_modal.dart';
-import '../widgets/gold_balance_widget.dart';
-import '../widgets/gem_balance_widget.dart';
 import '../services/chat_service.dart';
-import '../models/chat_model.dart';
+import '../models/activity_item.dart';
 import '../widgets/private_table_sheet.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -23,10 +22,11 @@ import '../services/config_service.dart';
 import 'package:app_links/app_links.dart';
 
 import '../services/invite_service.dart';
-import '../widgets/invite_overlay.dart';
 import '../widgets/invite_waiting_modal.dart';
 import '../widgets/profile_edit_modal.dart';
-import '../widgets/user_profile_header.dart';
+import '../widgets/lobby/lobby_top_bar.dart';
+import '../widgets/lobby/lobby_header.dart';
+import '../utils/currency_formatter.dart';
 
 class LobbyScreen extends StatefulWidget {
   final String? initialDeepLink;
@@ -38,13 +38,9 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen>
     with SingleTickerProviderStateMixin {
   bool playSheetOpen = false;
-  bool bgChatVisible = true;
-
-  late AnimationController _bgController;
   final InviteService _inviteService = InviteService();
-  final ChatService _chatService = ChatService();
+  final ActivityService _chatService = ActivityService();
   StreamSubscription? _chatSub;
-  final List<ChatMessage> _floatingMessages = [];
   bool _authReady = false;
   User? _currentUser;
   StreamSubscription? _authSub;
@@ -53,10 +49,6 @@ class _LobbyScreenState extends State<LobbyScreen>
   @override
   void initState() {
     super.initState();
-    _bgController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 8))
-          ..repeat();
-
     _initDeepLinks();
 
     // Listen to Auth State logic
@@ -141,39 +133,7 @@ class _LobbyScreenState extends State<LobbyScreen>
     _initDeepLinks();
 
     // _initFCM(); // Handled by InviteOverlay via DB stream
-
-    _chatSub = _chatService.getGlobalChat().listen((messages) {
-      if (mounted) {
-        setState(() {
-          final now = DateTime.now().millisecondsSinceEpoch;
-          // Filter out messages older than 2 minutes (120000ms)
-          final relevant =
-              messages.where((m) => (now - m.timestamp) < 120000).toList();
-
-          // Show last 5
-          final count = relevant.length;
-          final lastFew = relevant.sublist(count > 5 ? count - 5 : 0);
-
-          _floatingMessages.clear();
-          _floatingMessages.addAll(lastFew);
-        });
-      }
-    });
-
-    // Cleanup timer to remove expired messages periodically
-    _cleanupTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_floatingMessages.isEmpty) return;
-
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final expired =
-          _floatingMessages.where((m) => (now - m.timestamp) > 120000).toList();
-
-      if (expired.isNotEmpty && mounted) {
-        setState(() {
-          _floatingMessages.removeWhere((m) => (now - m.timestamp) > 120000);
-        });
-      }
-    });
+    // Chat listener removed for now
   }
 
   void _checkRewards() {
@@ -324,7 +284,6 @@ class _LobbyScreenState extends State<LobbyScreen>
 
   @override
   void dispose() {
-    _bgController.dispose();
     _authSub?.cancel();
     _chatSub?.cancel();
     _cleanupTimer?.cancel();
@@ -473,51 +432,45 @@ class _LobbyScreenState extends State<LobbyScreen>
       );
     }
 
-    return InviteOverlay(
-      child: Scaffold(
-        backgroundColor: AppColors.bgDark,
-        body: Center(
-          child: Container(
-            width: MediaQuery.of(context).size.width > 420
-                ? 390.0
-                : MediaQuery.of(context).size.width,
-            height: 844,
-            clipBehavior: Clip.hardEdge,
-            decoration: BoxDecoration(
-              color: AppColors.bgDark,
-              borderRadius: BorderRadius.circular(30),
-              boxShadow: [
-                BoxShadow(
-                    color: AppColors.neonPurple.withOpacity(0.12),
-                    blurRadius: 50)
-              ],
+    return Center(
+      child: Container(
+        width: MediaQuery.of(context).size.width > 420
+            ? 390.0
+            : MediaQuery.of(context).size.width,
+        height: 844,
+        clipBehavior: Clip.hardEdge,
+        decoration: BoxDecoration(
+          color: AppColors.bgDark,
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: Stack(
+          children: [
+            // Background decorations moved or simplified
+
+            SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  _topBar(),
+                  const LobbyHeader(),
+                  Expanded(child: _lobbyContent()),
+                ],
+              ),
             ),
-            child: Stack(
-              children: [
-                Positioned.fill(child: _buildBgChat()),
-                Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    _topBar(),
-                    Expanded(child: _lobbyContent()),
-                  ],
-                ),
-                Positioned(
-                    bottom: 120,
-                    left: 0,
-                    right: 0,
-                    height:
-                        120, // Constrain height to avoid blocking top touches
-                    child: Center(child: _playBtn())),
-                const Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: 100, // Constrain height
-                    child: BottomChatPill()),
-              ],
-            ),
-          ),
+            Positioned(
+                bottom: 120,
+                left: 0,
+                right: 0,
+                height: 120, // Constrain height to avoid blocking top touches
+                child: Center(child: _playBtn())),
+            const Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 100, // Constrain height
+                child: BottomChatPill()),
+          ],
         ),
       ),
     );
@@ -706,116 +659,12 @@ class _LobbyScreenState extends State<LobbyScreen>
   // Legacy/Unused methods removed or commented out to avoid confusion
   // _joinPrivateGame, _handleInviteNotification (replaced by Overlay)
 
-  Widget _buildBgChat() {
-    if (_floatingMessages.isEmpty) return const SizedBox.shrink();
-
-    return IgnorePointer(
-      child: Stack(
-        children: _floatingMessages.asMap().entries.map((entry) {
-          final i = entry.key;
-          final msg = entry.value;
-          final isLeft = i % 2 == 0;
-          final delay = (i * 2.5) % 8.0;
-
-          return _floatingMsg(
-              left: isLeft ? 20.0 + (i * 10) : null,
-              right: !isLeft ? 20.0 : null,
-              delay: delay,
-              avatar: 'assets/avatars/a${(msg.senderId.hashCode % 5) + 1}.png',
-              text: msg.text,
-              sender: msg.senderName);
-        }).toList(),
-      ),
-    );
-  }
-
-  Widget _floatingMsg(
-      {double? left,
-      double? right,
-      required double delay,
-      required String avatar,
-      required String text,
-      String? sender}) {
-    return AnimatedBuilder(
-      animation: _bgController,
-      builder: (_, __) {
-        final t = (_bgController.value + (delay / 8)) % 1.0;
-        final startY = 820.0;
-        final endY = 120.0;
-        final y = startY - (startY - endY) * t;
-        final opacity = (t < 0.1)
-            ? (t * 10)
-            : (t > 0.8)
-                ? (1 - (t - 0.8) * 5)
-                : 0.8;
-
-        if (opacity <= 0) return const SizedBox.shrink();
-
-        return Positioned(
-          left: left,
-          right: right,
-          top: y,
-          child: Opacity(
-            opacity: opacity.clamp(0.0, 1.0),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(20)),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircleAvatar(radius: 9, backgroundImage: AssetImage(avatar)),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (sender != null)
-                        Text(sender,
-                            style: TextStyle(
-                                fontSize: 8,
-                                color: Colors.white.withOpacity(0.5))),
-                      Text(
-                          text.length > 20
-                              ? '${text.substring(0, 20)}...'
-                              : text,
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.white70)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _topBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          UserProfileHeader(
-            currentUser: _currentUser,
-            onProfileTap: (name, avatar, city, country) {
-              _openProfileModal(name, avatar, city, country);
-            },
-          ),
-
-          // Currency Balances
-          Row(
-            children: const [
-              GemBalanceWidget(),
-              SizedBox(width: 8),
-              GoldBalanceWidget(),
-            ],
-          ),
-        ],
-      ),
-    );
+    return LobbyTopBar(
+        currentUser: _currentUser,
+        onProfileTap: (name, avatar, city, country) {
+          _openProfileModal(name, avatar, city, country);
+        });
   }
 
   Widget _lobbyContent() {
@@ -846,8 +695,6 @@ class _LobbyScreenState extends State<LobbyScreen>
                       top: 8, left: 16, right: 16, bottom: 16),
                   child: Column(
                     children: [
-                      _clubHeader(),
-                      const SizedBox(height: 10),
                       Expanded(
                         child: ListView(
                           padding: const EdgeInsets.only(bottom: 160),
@@ -864,6 +711,15 @@ class _LobbyScreenState extends State<LobbyScreen>
         });
   }
 
+  // Wait, I messed up the replacement block logic above.
+  // I should replace `_clubHeader` definition AND `_lobbyContent` definition logic.
+  // BUT they might not be contiguous.
+  // Safe bet: Replace `_clubHeader` first. Then `_buildActiveList` to parse avatars.
+
+  // Let's Cancel this big block and do it piecewise.
+  // 1. Update `_clubHeader`.
+  // 2. Update `_buildActiveList`.
+
   void _buildQueueList(List<Widget> listItems,
       AsyncSnapshot<DatabaseEvent> queueSnap, String? myUid) {
     final queueData = queueSnap.data?.snapshot.value as Map?;
@@ -873,12 +729,13 @@ class _LobbyScreenState extends State<LobbyScreen>
         final uid = val['uid'];
         if (uid == myUid) return; // Don't show self
 
-        debugPrint('Table card in Lobby visible | $myUid | $uid');
         listItems.add(
           TableCard(
             mode: '2P',
-            winText: 'WAITING FOR OPPONENT',
+            winText: 'WIN ${ConfigService.instance.gameStake * 2} GOLD',
             entryFee: ConfigService.instance.gameStake,
+            isActive: false, // It's a queue item, not active game
+            isTeam: false,
             onTap: () => _handleQueueJoin(key, ConfigService.instance.gameStake,
                 ConfigService.instance.gemFee, uid),
           ),
@@ -900,7 +757,21 @@ class _LobbyScreenState extends State<LobbyScreen>
           if (players.containsKey(myUid)) return; // Hide self
         }
 
-        listItems.add(_buildActiveMatchCard(val));
+        // Convert table data to Card
+        final stake = val['stake'] ?? ConfigService.instance.gameStake;
+        final isTeam = val['mode'] == '4p' || val['mode'] == 'team';
+
+        listItems.add(TableCard(
+            mode: isTeam ? 'TEAM' : '2P',
+            winText: 'WIN ${stake * 2} GOLD', // Approximate win text
+            entryFee: stake, // Show fee even if active
+            isActive: true,
+            isTeam: isTeam,
+            onTap: () {
+              // Spectate Logic or "Full" toast
+              ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Spectating coming soon!")));
+            }));
         listItems.add(const SizedBox(height: 12));
       });
     }
@@ -909,19 +780,27 @@ class _LobbyScreenState extends State<LobbyScreen>
   void _buildQuickPlayCards(List<Widget> listItems) {
     int currentCount = (listItems.length / 2).ceil();
     if (currentCount < 5) {
+      // 1. Classic 1v1
       listItems.add(TableCard(
         mode: '2P',
         winText: 'WIN ${ConfigService.instance.gameStake * 2} GOLD',
         entryFee: ConfigService.instance.gameStake,
+        isActive: false,
+        isTeam: false,
         onTap: () =>
             _showQuickJoinModal(ConfigService.instance.gameStake, '2p'),
       ));
       listItems.add(const SizedBox(height: 12));
 
+      // 2. Team 2v2
       listItems.add(TableCard(
         mode: 'TEAM',
         winText: 'WIN 5K GOLD',
         entryLabel: '2.5k Gold',
+        // Special case for manual label if needed, but entryFee int is preferred usually
+        entryFee: 2500,
+        isActive: false,
+        isTeam: true,
         onTap: () => _showQuickJoinModal(2500, 'team'),
       ));
       listItems.add(const SizedBox(height: 12));
@@ -1020,11 +899,11 @@ class _LobbyScreenState extends State<LobbyScreen>
         width: 84,
         height: 84,
         decoration: BoxDecoration(
-            gradient: AppColors.primaryGrad,
+            gradient: AppTheme.primaryGrad,
             borderRadius: BorderRadius.circular(50),
             boxShadow: [
               BoxShadow(
-                  color: AppColors.neonPurple.withOpacity(0.28),
+                  color: AppTheme.neonPurple.withOpacity(0.28),
                   blurRadius: 40,
                   offset: const Offset(0, 10))
             ],
@@ -1043,167 +922,6 @@ class _LobbyScreenState extends State<LobbyScreen>
                       color: Colors.white))
             ]),
       ),
-    );
-  }
-
-  Widget _buildActiveMatchCard(Map tableData) {
-    // default stake ConfigService.instance.gameStake
-    final stake = tableData['stake'] ?? ConfigService.instance.gameStake;
-    // Safely get spectators count (map or list)
-    int spectatorCount = 0;
-    final specData = tableData['spectators'];
-    if (specData is Map) {
-      spectatorCount = specData.length;
-    } else if (specData is List) {
-      spectatorCount = specData.length;
-    }
-
-    // Status Text
-    String statusText = 'Active';
-    if (spectatorCount > 0) {
-      statusText = 'Watching ($spectatorCount)';
-    }
-
-    // For now simple P1 vs P2.
-    // In real app we fetch names/avatars.
-    // Using placeholders.
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E2025)
-            .withOpacity(0.7), // Glass surface equivalent
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 4))
-        ],
-      ),
-      child: Column(
-        children: [
-          // Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.white.withOpacity(0.7))),
-                child: Text('2P',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white.withOpacity(0.7))),
-              ),
-              ShaderMask(
-                shaderCallback: (bounds) => AppColors.primaryGrad.createShader(
-                    Rect.fromLTWH(0, 0, bounds.width, bounds.height)),
-                child: Text('WIN ${stake * 2} GOLD',
-                    style: const TextStyle(
-                        fontFamily: 'Poppins',
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color:
-                            Colors.white)), // color ignored by mask but needed
-              )
-            ],
-          ),
-          const SizedBox(height: 12),
-          // VS Row
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // P1
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF333333),
-                      borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: const Color(0xFF2D3748), width: 2),
-                      image: const DecorationImage(
-                          image: AssetImage('assets/avatars/a1.png'),
-                          fit: BoxFit.cover)),
-                ),
-                // VS
-                Text('VS',
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.3),
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        fontStyle: FontStyle.italic)),
-                // P2
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF333333),
-                      borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: const Color(0xFF2D3748), width: 2),
-                      image: const DecorationImage(
-                          image: AssetImage('assets/avatars/a2.png'),
-                          fit: BoxFit.cover)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Footer
-          Container(
-            padding: const EdgeInsets.only(top: 8),
-            decoration: BoxDecoration(
-              border: Border(
-                  top: BorderSide(color: Colors.white.withOpacity(0.05))),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Entry: $stake Gold',
-                    style: const TextStyle(
-                        fontSize: 11, color: Color(0xFF94A3B8))),
-                Text(statusText,
-                    style: const TextStyle(
-                        fontSize: 11, color: Color(0xFF94A3B8))),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  // <-- NEW: club header implementation (was missing)
-  Widget _clubHeader() {
-    return Column(
-      children: [
-        Text('Tryb',
-            style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: Colors.white)),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-              color: Colors.white10, borderRadius: BorderRadius.circular(12)),
-          child: Row(mainAxisSize: MainAxisSize.min, children: const [
-            SizedBox(width: 6),
-            CircleAvatar(radius: 3, backgroundColor: Color(0xFF22C55E)),
-            SizedBox(width: 8),
-            Text('425 Online',
-                style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-          ]),
-        ),
-      ],
     );
   }
 

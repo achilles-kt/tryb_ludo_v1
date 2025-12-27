@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../theme/app_theme.dart';
 
 /// Displays the user's current gold balance with real-time Firebase sync
 class GoldBalanceWidget extends StatefulWidget {
@@ -78,13 +79,14 @@ class _GoldBalanceWidgetState extends State<GoldBalanceWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (inside build)
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: widget.backgroundColor ?? Colors.white.withOpacity(0.06),
+        color: Colors.black54, // Darker pill bg
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: widget.borderColor ?? Colors.white.withOpacity(0.18),
+          color: Colors.white.withOpacity(0.1), // Glass border
         ),
       ),
       child: Row(
@@ -92,8 +94,8 @@ class _GoldBalanceWidgetState extends State<GoldBalanceWidget> {
         children: [
           const Icon(
             Icons.monetization_on,
-            size: 18,
-            color: Color(0xFFFFD54F),
+            size: 16,
+            color: AppTheme.gold,
           ),
           const SizedBox(width: 6),
           _isLoading

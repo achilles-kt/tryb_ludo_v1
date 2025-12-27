@@ -1,10 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../services/auth_service.dart';
-import '../widgets/level_badge.dart';
+import '../services/user_profile_service.dart';
 import '../utils/level_calculator.dart';
+import '../utils/country_utils.dart';
+import 'profile/avatar_picker.dart';
+import 'profile/level_progress_card.dart';
+import 'profile/phone_linking_card.dart';
+import '../widgets/level_badge.dart';
 
 class ProfileEditModal extends StatefulWidget {
   final String currentName;
@@ -15,8 +19,8 @@ class ProfileEditModal extends StatefulWidget {
 
   const ProfileEditModal({
     super.key,
-    required this.currentName,
-    required this.currentAvatar,
+    this.currentName = '',
+    this.currentAvatar = 'assets/avatars/a1.png',
     this.currentCity = '',
     this.currentCountry = '',
     this.onSave,
@@ -30,6 +34,14 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
   late TextEditingController _nameController;
   late TextEditingController _cityController;
   late TextEditingController _countryController;
+
+  // Phone Auth
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
+  String? _verificationId;
+  bool _codeSent = false;
+  String? _linkedPhoneNumber;
+
   late String _selectedAvatar;
   bool _isSaving = false;
   LevelInfo? _levelInfo;
@@ -40,7 +52,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
   bool _isGoogleLinked = false;
   bool _isAppleLinked = false;
 
-  // Placeholder for Indian Avatars (4M, 4F)
   final List<String> _avatars = [
     'assets/avatars/a1.png',
     'assets/avatars/a2.png',
@@ -59,8 +70,31 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
     _cityController = TextEditingController(text: widget.currentCity);
     _countryController = TextEditingController(text: widget.currentCountry);
     _selectedAvatar = widget.currentAvatar;
+
+    _initData();
+  }
+
+  Future<void> _initData() async {
     _fetchLevelInfo();
+    _fetchLinkedPhone();
     _checkLinkedProviders();
+    if (widget.currentName.isEmpty) {
+      _fetchProfileData();
+    }
+  }
+
+  Future<void> _fetchProfileData() async {
+    final p = await UserProfileService.instance.fetchProfile();
+    if (p != null && mounted) {
+      setState(() {
+        _nameController.text = p['displayName'] ?? '';
+        _cityController.text = p['city'] ?? '';
+        _countryController.text = p['country'] ?? '';
+        if (p['avatarUrl'] != null && (p['avatarUrl'] as String).isNotEmpty) {
+          _selectedAvatar = p['avatarUrl'];
+        }
+      });
+    }
   }
 
   void _checkLinkedProviders() {
@@ -74,22 +108,27 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
   }
 
   Future<void> _fetchLevelInfo() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    final info = await UserProfileService.instance.fetchLevelInfo();
+    if (mounted && info != null) {
+      setState(() => _levelInfo = info);
+    }
+  }
 
-    try {
-      final snap = await FirebaseDatabase.instance
-          .ref('users/$uid/wallet/totalEarned')
-          .get();
+  Future<void> _fetchLinkedPhone() async {
+    final data = await UserProfileService.instance.fetchLinkedPhone();
+    if (data != null && data['verified'] == true) {
+      if (mounted)
+        setState(() => _linkedPhoneNumber = data['number'] as String?);
+    } else {
+      _tryAutoFillCountryCode();
+    }
+  }
 
-      final totalGold = (snap.value as num?)?.toInt() ?? 0;
-      if (mounted) {
-        setState(() {
-          _levelInfo = LevelCalculator.calculate(totalGold);
-        });
-      }
-    } catch (e) {
-      debugPrint("Error fetching level info: $e");
+  Future<void> _tryAutoFillCountryCode() async {
+    if (_phoneController.text.isNotEmpty) return;
+    final code = await CountryUtils.fetchCountryDialCode();
+    if (code != null && mounted && _phoneController.text.isEmpty) {
+      setState(() => _phoneController.text = "$code ");
     }
   }
 
@@ -98,6 +137,8 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
     _nameController.dispose();
     _cityController.dispose();
     _countryController.dispose();
+    _phoneController.dispose();
+    _otpController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -107,7 +148,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
       Scrollable.ensureVisible(_avatarSectionKey.currentContext!,
           duration: const Duration(milliseconds: 500), curve: Curves.easeInOut);
     } else {
-      // Fallback
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 500),
@@ -117,28 +157,22 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
   }
 
   Future<void> _handleSave() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-
     if (_nameController.text.trim().isEmpty) return;
-
     setState(() => _isSaving = true);
 
     try {
-      await FirebaseDatabase.instance.ref('users/$uid/profile').update({
-        'displayName': _nameController.text.trim(),
-        'avatarUrl': _selectedAvatar,
-        'city': _cityController.text.trim(),
-        'country': _countryController.text.trim(),
-        'updatedAt': ServerValue.timestamp,
-      });
+      await UserProfileService.instance.updateProfile(
+        name: _nameController.text.trim(),
+        avatar: _selectedAvatar,
+        city: _cityController.text.trim(),
+        country: _countryController.text.trim(),
+      );
 
       if (mounted) {
         widget.onSave?.call();
         Navigator.of(context).pop();
       }
     } catch (e) {
-      debugPrint('Error saving profile: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to save profile: $e')),
@@ -149,23 +183,16 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
     }
   }
 
-  // --- Auth Handlers ---
-
   Future<void> _handleGoogleSignIn() async {
     try {
       setState(() => _isSaving = true);
       await AuthService.instance.signInWithGoogle();
-      if (mounted) {
-        // Refresh link status and likely reload profile if user switched
-        _checkLinkedProviders();
-        // Optionally close modal or show success?
-        // If merge happened, the entire app state might need refresh.
-        // But for now, just updating UI state effectively changes buttons.
-      }
+      if (mounted) _checkLinkedProviders();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text("Google Sign In Failed: $e")));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -177,11 +204,85 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
       await AuthService.instance.signInWithApple();
       if (mounted) _checkLinkedProviders();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text("Apple Sign In Failed: $e")));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  // --- Phone Auth Logic ---
+
+  Future<void> _handleSendCode() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Enter a phone number")));
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      await AuthService.instance.verifyPhoneNumber(
+          phoneNumber: phone,
+          onCodeSent: (verId) {
+            if (mounted) {
+              setState(() {
+                _verificationId = verId;
+                _codeSent = true;
+                _isSaving = false;
+              });
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text("OTP Sent!")));
+            }
+          },
+          onFail: (err) {
+            if (mounted) {
+              setState(() => _isSaving = false);
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text("Error: $err")));
+            }
+          },
+          onAutoVerify: (cred) async {
+            // Android Auto-verify
+          });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        debugPrint("Phone err: $e");
+      }
+    }
+  }
+
+  Future<void> _handleVerifyOTP() async {
+    final otp = _otpController.text.trim();
+    if (_verificationId == null || otp.isEmpty) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await AuthService.instance.linkPhoneCredential(_verificationId!, otp);
+      await UserProfileService.instance
+          .linkPhoneNumber(number: _phoneController.text.trim());
+
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _codeSent = false;
+          _linkedPhoneNumber = _phoneController.text.trim();
+          _phoneController.clear();
+          _otpController.clear();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Phone Linked Successfully!")));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Invalid OTP: $e")));
+      }
     }
   }
 
@@ -193,20 +294,16 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
     const gold = Color(0xFFFACC15);
     const textMuted = Color(0xFF9CA3AF);
 
-    // Determine if we show Auth Buttons
-    // Rule: "If only anonymous -> show buttons as Primary. Save is Secondary."
-    // Rule: "If linked -> Save is Primary."
     final isAnon = !_isGoogleLinked && !_isAppleLinked;
 
     return Scaffold(
-      backgroundColor: Colors.black54, // Overlay dimming
+      backgroundColor: Colors.black54,
       body: Center(
         child: Container(
           width: MediaQuery.of(context).size.width > 420
               ? 390
               : MediaQuery.of(context).size.width,
-          height: MediaQuery.of(context).size.height *
-              0.90, // Slightly taller for auth buttons
+          height: MediaQuery.of(context).size.height * 0.90,
           margin: const EdgeInsets.only(top: 40),
           decoration: BoxDecoration(
             color: bg,
@@ -221,7 +318,7 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const SizedBox(width: 24), // Spacer for centering title
+                    const SizedBox(width: 24),
                     const Text("EDIT PROFILE",
                         style: TextStyle(
                             color: Colors.white,
@@ -232,7 +329,7 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                       onTap: () => Navigator.of(context).pop(),
                       child: Container(
                         padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
+                        decoration: const BoxDecoration(
                           color: Colors.white10,
                           shape: BoxShape.circle,
                         ),
@@ -258,7 +355,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                       ),
                       child: Column(
                         children: [
-                          // Avatar
                           GestureDetector(
                             onTap: _scrollToAvatars,
                             child: Container(
@@ -300,8 +396,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                                     fontWeight: FontWeight.w500)),
                           ),
                           const SizedBox(height: 16),
-
-                          // Name Field
                           TextField(
                             controller: _nameController,
                             textAlign: TextAlign.center,
@@ -316,15 +410,11 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                               isDense: true,
                             ),
                           ),
-
-                          // Handle (mock derived from name)
                           Text(
                               "@${_nameController.text.toLowerCase().replaceAll(' ', '_')}",
-                              style: TextStyle(color: textMuted, fontSize: 13)),
-
+                              style: const TextStyle(
+                                  color: textMuted, fontSize: 13)),
                           const SizedBox(height: 20),
-
-                          // City and Country Row
                           Row(
                             children: [
                               Expanded(
@@ -380,7 +470,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 12),
                           if (_levelInfo != null)
                             Row(
@@ -392,7 +481,7 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                                     showLabel: false),
                                 const SizedBox(width: 6),
                                 Text("LVL ${_levelInfo!.level} · Rookie",
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                         color: gold,
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600)),
@@ -403,103 +492,41 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 2. Progress Card
-                    if (_levelInfo != null)
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: cardBg,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("LEVEL PROGRESS",
-                                style: TextStyle(
-                                    color: textMuted,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5)),
-                            const SizedBox(height: 12),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: LinearProgressIndicator(
-                                value: _levelInfo!.progress,
-                                minHeight: 10,
-                                backgroundColor: const Color(0xFF0B0D11),
-                                color: gold,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                                "${_levelInfo!.totalGold} / ${_levelInfo!.nextThreshold} XP",
-                                style:
-                                    TextStyle(color: textMuted, fontSize: 12)),
-                          ],
-                        ),
-                      ),
+                    LevelProgressCard(levelInfo: _levelInfo),
+
                     const SizedBox(height: 16),
 
-                    // 3. Avatar Picker Card
+                    PhoneLinkingCard(
+                        linkedPhoneNumber: _linkedPhoneNumber,
+                        codeSent: _codeSent,
+                        isSaving: _isSaving,
+                        phoneController: _phoneController,
+                        otpController: _otpController,
+                        onSendCode: _handleSendCode,
+                        onVerifyOtp: _handleVerifyOTP,
+                        onChangeNumber: () {
+                          setState(() {
+                            _linkedPhoneNumber = null;
+                            _codeSent = false;
+                            _phoneController.clear();
+                            _tryAutoFillCountryCode();
+                          });
+                        }),
+
+                    const SizedBox(height: 16),
+
+                    // Avatar Picker (with key for scrolling)
                     Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        key: _avatarSectionKey,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("CHOOSE YOUR AVATAR",
-                              style: TextStyle(
-                                  color: textMuted,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5)),
-                          const SizedBox(height: 16),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 4,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                            ),
-                            itemCount: _avatars.length,
-                            itemBuilder: (context, index) {
-                              final asset = _avatars[index];
-                              final isSelected = asset == _selectedAvatar;
-                              return GestureDetector(
-                                onTap: () =>
-                                    setState(() => _selectedAvatar = asset),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: isSelected
-                                        ? Border.all(color: primary, width: 3)
-                                        : null,
-                                    boxShadow: isSelected
-                                        ? [
-                                            BoxShadow(
-                                                color: primary.withOpacity(0.5),
-                                                blurRadius: 12)
-                                          ]
-                                        : null,
-                                  ),
-                                  child: CircleAvatar(
-                                    backgroundColor: const Color(0xFF111318),
-                                    backgroundImage: AssetImage(asset),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+                      key: _avatarSectionKey,
+                      child: AvatarPicker(
+                        avatars: _avatars,
+                        selectedAvatar: _selectedAvatar,
+                        onAvatarSelected: (val) =>
+                            setState(() => _selectedAvatar = val),
                       ),
                     ),
-                    const SizedBox(height: 100), // Space for bottom bar
+
+                    const SizedBox(height: 100),
                   ],
                 ),
               ),
@@ -513,18 +540,13 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // PRIMARY BUTTON AREA
             if (isAnon) ...[
-              // Row for Providers
               Row(
                 children: [
-                  // Google Button (Primary on Android, Left on iOS)
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: _isSaving ? null : _handleGoogleSignIn,
-                      icon: const Icon(Icons.login,
-                          color: Colors
-                              .black), // Ideal: proper Google G Logo asset
+                      icon: const Icon(Icons.login, color: Colors.black),
                       label: const Text("Continue with Google",
                           style: TextStyle(
                               color: Colors.black,
@@ -537,15 +559,10 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                       ),
                     ),
                   ),
-
-                  // Apple Button (Only on iOS)
                   if (Platform.isIOS) ...[
                     const SizedBox(width: 12),
                     ElevatedButton(
                       onPressed: _isSaving ? null : _handleAppleSignIn,
-                      // Ideal: Apple Logo
-                      child: const Icon(Icons.apple,
-                          color: Colors.white, size: 28),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(
@@ -554,13 +571,13 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                             borderRadius: BorderRadius.circular(12),
                             side: const BorderSide(color: Colors.white24)),
                       ),
+                      child: const Icon(Icons.apple,
+                          color: Colors.white, size: 28),
                     ),
                   ],
                 ],
               ),
               const SizedBox(height: 12),
-
-              // SECONDARY: Save & Continue (Text/Outlined)
               SizedBox(
                 width: double.infinity,
                 child: TextButton(
@@ -573,7 +590,6 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                 ),
               ),
             ] else ...[
-              // LINKED STATE: Save is Primary
               SizedBox(
                 width: double.infinity,
                 height: 56,
@@ -599,7 +615,22 @@ class _ProfileEditModalState extends State<ProfileEditModal> {
                               fontWeight: FontWeight.w600)),
                 ),
               ),
-            ]
+            ],
+
+            // LOGOUT BUTTON
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () async {
+                  await FirebaseAuth.instance.signOut();
+                  if (mounted) Navigator.of(context).pop();
+                },
+                icon: const Icon(Icons.logout, size: 16, color: Colors.white30),
+                label: const Text("Logout",
+                    style: TextStyle(color: Colors.white30, fontSize: 12)),
+              ),
+            )
           ],
         ),
       ),

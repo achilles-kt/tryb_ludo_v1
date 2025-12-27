@@ -1,8 +1,10 @@
-// lib/widgets/chat_sheet.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/chat_service.dart';
-import '../models/chat_model.dart';
+import '../models/activity_item.dart';
+import '../widgets/activity_item_renderer.dart';
+import '../widgets/chat_input_bar.dart';
 
 class ChatSheet extends StatefulWidget {
   final String? gameId; // If null, assume Global Chat
@@ -24,52 +26,135 @@ class ChatSheet extends StatefulWidget {
 
 class _ChatSheetState extends State<ChatSheet> {
   final TextEditingController _controller = TextEditingController();
-  final ChatService _chatService = ChatService();
+  final ActivityService _chatService = ActivityService.instance;
   final String _uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-  late Stream<List<ChatMessage>> _chatStream;
+  late Stream<List<ActivityItem>> _chatStream;
   late bool _isTeamChat;
 
   @override
   void initState() {
     super.initState();
     _isTeamChat = widget.initialIsTeamChat;
+    _updateStream();
+  }
+
+  void _updateStream() {
     if (widget.gameId != null) {
-      _chatStream = _chatService.getGameChat(widget.gameId!);
+      final cid = _currentConvId;
+      if (cid != null) {
+        debugPrint('ChatSheet: Listening to $cid');
+        _chatStream = _chatService.getConversationStream(cid);
+      } else {
+        _chatStream = const Stream.empty();
+      }
     } else {
       _chatStream = _chatService.getGlobalChat();
     }
-    debugPrint(
-        '🔍 Chat: Opening Widget | User: $_uid | Type: ${widget.gameId == null ? "Global" : "Game"} | GameID: ${widget.gameId}');
   }
 
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
-    // Clear immediately for UX
     _controller.clear();
 
-    debugPrint(
-        '🔍 Chat: Typed/Sending | User: $_uid | Msg: $text | Type: ${widget.gameId == null ? "Global" : "Game"}');
-
     if (widget.gameId != null) {
-      _chatService.sendGameMessage(widget.gameId!, text, isTeam: _isTeamChat);
+      // Phase 14: Unified Stream Logic
+      if (widget.players == null) return;
+
+      List<String> targetUids = [];
+      final myUid = _uid;
+      final myData = widget.players![myUid];
+
+      // Determine Participants
+      widget.players!.forEach((uid, data) {
+        if (_isTeamChat) {
+          // Filter for Team
+          if (myData != null && data['team'] == myData['team']) {
+            targetUids.add(uid);
+          }
+        } else {
+          // All Players
+          targetUids.add(uid);
+        }
+      });
+
+      if (targetUids.isNotEmpty) {
+        final convId = _chatService.getCanonicalId(targetUids);
+        debugPrint("Sending ${_isTeamChat ? 'Team' : 'All'} msg to $convId");
+
+        _chatService.sendMessageToConversation(
+            convId: convId,
+            text: text,
+            type: 'text',
+            context: {'gameId': widget.gameId, 'isTeam': _isTeamChat});
+      }
     } else {
       _chatService.sendGlobalMessage(text);
     }
   }
 
+  Timer? _typingDebounce;
+
+  @override
+  void dispose() {
+    _typingDebounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  // Helper to get current active conversation ID
+  String? get _currentConvId {
+    if (widget.gameId == null)
+      return null; // Global Chat doesn't support typing yet (or hardcode global_chat)
+
+    if (widget.players == null) return null;
+
+    List<String> targetUids = [];
+    final myUid = _uid;
+    final myData = widget.players![myUid];
+
+    widget.players!.forEach((uid, data) {
+      if (_isTeamChat) {
+        if (myData != null && data['team'] == myData['team']) {
+          targetUids.add(uid);
+        }
+      } else {
+        targetUids.add(uid);
+      }
+    });
+
+    if (targetUids.isEmpty) return null;
+    return _chatService.getCanonicalId(targetUids);
+  }
+
+  void _onTextChanged(String value) {
+    final cid = _currentConvId;
+    if (cid == null) return;
+
+    if (_typingDebounce?.isActive ?? false) _typingDebounce!.cancel();
+
+    _chatService.setTypingStatusForConversation(cid, true);
+
+    _typingDebounce = Timer(const Duration(milliseconds: 2000), () {
+      _chatService.setTypingStatusForConversation(cid, false);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Keyboard awareness
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Container(
-      height: screenHeight * 0.75, // Fixed 75% height
+      height: screenHeight * 0.75,
       decoration: const BoxDecoration(
-          color: Color(0xFF14161b),
+          // Unified Gradient Background
+          gradient: LinearGradient(
+              colors: [Color(0xFF0F1218), Color(0xFF1A1D24)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter),
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       child: Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
@@ -100,6 +185,28 @@ class _ChatSheetState extends State<ChatSheet> {
                                 style: TextStyle(
                                     fontSize: 10, color: Colors.white54),
                               ),
+                            // Typing Indicator
+                            if (widget.gameId != null && _currentConvId != null)
+                              StreamBuilder<bool>(
+                                stream:
+                                    _chatService.getTypingStatusForConversation(
+                                        _currentConvId!),
+                                builder: (context, snap) {
+                                  if (snap.data == true) {
+                                    return const Padding(
+                                      padding: EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        "Someone is typing...",
+                                        style: TextStyle(
+                                            fontStyle: FontStyle.italic,
+                                            fontSize: 10,
+                                            color: Colors.greenAccent),
+                                      ),
+                                    );
+                                  }
+                                  return const SizedBox.shrink();
+                                },
+                              )
                           ],
                         ),
                       ),
@@ -125,7 +232,7 @@ class _ChatSheetState extends State<ChatSheet> {
 
             // Messages List
             Expanded(
-              child: StreamBuilder<List<ChatMessage>>(
+              child: StreamBuilder<List<ActivityItem>>(
                 stream: _chatStream,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
@@ -141,12 +248,9 @@ class _ChatSheetState extends State<ChatSheet> {
 
                   // Filter logic for Team Chat privacy
                   final visibleMessages = messages.where((msg) {
-                    if (!msg.isTeam)
-                      return true; // Global/All messages always visible
-                    if (msg.senderId == _uid)
-                      return true; // My messages always visible
+                    if (!msg.isTeam) return true;
+                    if (msg.senderId == _uid) return true;
 
-                    // If game data missing, hide team messages from others to be safe
                     if (widget.players == null) return false;
 
                     final senderData = widget.players![msg.senderId];
@@ -157,64 +261,32 @@ class _ChatSheetState extends State<ChatSheet> {
                     final senderTeam = senderData['team'];
                     final myTeam = myData['team'];
 
-                    // Only show if on same team
                     return senderTeam != null && senderTeam == myTeam;
                   }).toList();
 
-                  // Messages are sorted OLD ... NEW by service
-                  // ListView standard: Top is index 0.
-                  // We want Newest at bottom.
-                  // So index 0 = OLD. Index N = NEW.
-                  // Standard ListView works.
-                  // To auto-scroll to bottom, we usually use reverse: true and sort New...Old.
-                  // Let's locally reverse to New...Old and use reverse: true.
-                  final visualMessages = visibleMessages.reversed.toList();
+                  final visualMessages = visibleMessages;
 
                   return ListView.builder(
                     padding: const EdgeInsets.all(16),
                     reverse: true,
                     itemCount: visualMessages.length,
                     itemBuilder: (ctx, i) {
-                      final msg = visualMessages[i];
-                      return _msgRow(msg);
+                      final item = visualMessages[i];
+                      final isMe = item.senderId == _uid;
+                      return ActivityItemRenderer(item: item, isMe: isMe);
                     },
                   );
                 },
               ),
             ),
 
-            // Input Area
-            Padding(
-                padding: const EdgeInsets.only(
-                    left: 12, right: 12, top: 12, bottom: 20),
-                child: Row(children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                          color: Colors.white12,
-                          borderRadius: BorderRadius.circular(30)),
-                      child: TextField(
-                        controller: _controller,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                            border: InputBorder.none,
-                            hintText: 'Type a message...',
-                            hintStyle: TextStyle(color: Colors.white30)),
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CircleAvatar(
-                      backgroundColor:
-                          const Color(0xFF6366f1), // Approximate primary
-                      radius: 22,
-                      child: IconButton(
-                          icon: const Icon(Icons.send,
-                              color: Colors.white, size: 20),
-                          onPressed: _sendMessage))
-                ]))
+            // Unified Input Area
+            ChatInputBar(
+              controller: _controller,
+              onSend: _sendMessage,
+              onChanged: _onTextChanged,
+              hintText: 'Type a message...',
+            ),
           ],
         ),
       ),
@@ -224,7 +296,12 @@ class _ChatSheetState extends State<ChatSheet> {
   Widget _toggleBtn(String label, bool isActive) {
     return GestureDetector(
       onTap: () {
-        if (!isActive) setState(() => _isTeamChat = !_isTeamChat);
+        if (!isActive)
+          setState(() {
+            _isTeamChat = !_isTeamChat;
+            _controller.clear();
+            _updateStream();
+          });
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -247,71 +324,6 @@ class _ChatSheetState extends State<ChatSheet> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _msgRow(ChatMessage msg) {
-    final isMe = msg.senderId == _uid;
-    // Fallback avatar
-    final avatar = 'assets/avatars/a${(msg.senderId.hashCode % 5) + 1}.png';
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-          mainAxisAlignment:
-              isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!isMe) ...[
-              CircleAvatar(radius: 14, backgroundImage: AssetImage(avatar)),
-              const SizedBox(width: 8),
-            ],
-            Flexible(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                  color: isMe
-                      ? (msg.isTeam
-                          ? const Color(0xFFC0C0C0).withOpacity(0.8)
-                          : const Color(0xFF6366f1))
-                      : (msg.isTeam
-                          ? const Color(0xFFC0C0C0).withOpacity(0.2)
-                          : Colors.white12),
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: isMe ? const Radius.circular(16) : Radius.zero,
-                    bottomRight: isMe ? Radius.zero : const Radius.circular(16),
-                  ),
-                  border: msg.isTeam
-                      ? Border.all(color: const Color(0xFFC0C0C0), width: 1)
-                      : null,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!isMe && msg.senderName != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(msg.senderName!,
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: msg.isTeam && !isMe
-                                    ? const Color(0xFFC0C0C0)
-                                    : Colors.white54)),
-                      ),
-                    Text(msg.text,
-                        style: TextStyle(
-                            color: msg.isTeam && isMe
-                                ? Colors.black
-                                : Colors.white,
-                            fontWeight: FontWeight.normal)),
-                  ],
-                ),
-              ),
-            ),
-          ]),
     );
   }
 }

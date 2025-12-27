@@ -15,6 +15,15 @@ class LevelInfo {
     if (nextThreshold == currentThreshold) return 1.0;
     return (totalGold - currentThreshold) / (nextThreshold - currentThreshold);
   }
+
+  String get levelTitle {
+    if (level < 2) return "Novice";
+    if (level < 5) return "Rookie";
+    if (level < 10) return "Pro";
+    if (level < 20) return "Master";
+    if (level < 50) return "Grandmaster";
+    return "Legend";
+  }
 }
 
 class LevelCalculator {

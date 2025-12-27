@@ -60,6 +60,47 @@ class AuthService {
     }
   }
 
+  // --- Phone Auth Methods ---
+
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required Function(String verificationId) onCodeSent,
+    required Function(String error) onFail,
+    required Function(PhoneAuthCredential credential) onAutoVerify,
+  }) async {
+    await _auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        // Android only: Auto-resolution
+        debugPrint("AuthService: Auto-resolution completed.");
+        onAutoVerify(credential);
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        debugPrint("AuthService: Phone verify failed: ${e.message}");
+        onFail(e.message ?? "Verification failed");
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        debugPrint("AuthService: Code sent. ID: $verificationId");
+        onCodeSent(verificationId);
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        // Time out
+      },
+      timeout: const Duration(seconds: 60),
+    );
+  }
+
+  Future<void> linkPhoneCredential(
+      String verificationId, String smsCode) async {
+    final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId, smsCode: smsCode);
+    await _smartLinkOrMerge(credential);
+  }
+
+  Future<void> linkCredential(AuthCredential credential) async {
+    await _smartLinkOrMerge(credential);
+  }
+
   // --- Core Logic: Link or Merge ---
 
   Future<void> _smartLinkOrMerge(AuthCredential credential) async {

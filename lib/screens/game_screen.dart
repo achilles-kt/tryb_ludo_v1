@@ -8,9 +8,12 @@ import '../widgets/chat_sheet.dart';
 import '../state/game_state.dart';
 import '../state/game_state.dart';
 import '../widgets/gold_balance_widget.dart';
+import '../widgets/game/game_player_profile.dart';
 
 import '../widgets/game/chat_overlay.dart';
 import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
+import '../services/presence_service.dart';
+import '../services/chat_service.dart'; // ActivityService
 
 class GameScreen extends StatefulWidget {
   final String gameId;
@@ -39,6 +42,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     super.initState();
     final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
 
+    // Presence: Set Playing
+    PresenceService().setPlaying(widget.gameId);
+
     game = LudoGame(
       gameId: widget.gameId,
       tableId: widget.tableId,
@@ -57,6 +63,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    // Presence: Set back to Online (Idle)
+    PresenceService().setOnline();
     _timer?.cancel();
     super.dispose();
   }
@@ -66,6 +74,33 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _showEndScreen(GameResult result) {
+    // Activity Stream: Log Game Result
+    try {
+      final allUids = game.state.players.keys.toList();
+      final convId = ActivityService.instance.getCanonicalId(allUids);
+
+      final winnerUid = result == GameResult.win
+          ? game.localUid
+          : (game.winnerUid ?? 'Unknown');
+
+      // Helper to get name
+      String getName(String id) => game.state.players[id]?['name'] ?? 'Player';
+      final winnerName = getName(winnerUid);
+
+      ActivityService.instance.sendMessageToConversation(
+        convId: convId,
+        text: "Game Finished. Winner: $winnerName 🏆",
+        type: "game_result",
+        payload: {
+          "result": result == GameResult.win ? "win" : "loss",
+          "winnerUid": winnerUid,
+          "gameId": widget.gameId
+        },
+      );
+    } catch (e) {
+      debugPrint("Error logging game result: $e");
+    }
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -76,93 +111,106 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1218),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final screenW = constraints.maxWidth;
-          final screenH = constraints.maxHeight;
+      backgroundColor: Colors.transparent, // Background handled by container
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.3,
+            colors: [
+              Color(0xFF1E293B), // Spot of light in center
+              Color(0xFF0F1218), // Dark corners
+            ],
+            stops: [0.0, 0.9],
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenW = constraints.maxWidth;
+            final screenH = constraints.maxHeight;
 
-          // Define safe area for board
-          // TopBar is ~80px, BottomArea is ~100px.
-          // Add padding (24px top, 24px bottom).
-          final safeHeight = screenH - 180;
+            // Define safe area for board
+            // TopBar is ~80px, BottomArea is ~100px.
+            // Add padding (24px top, 24px bottom).
+            final safeHeight = screenH - 180;
 
-          // Board is a square. Constrain by width (90%) AND available height.
-          final boardSize = (screenW * 0.90).clamp(0.0, safeHeight);
+            // Board is a square. Constrain by width (90%) AND available height.
+            final boardSize = (screenW * 0.90).clamp(0.0, safeHeight);
 
-          // Center board vertically in the safe zone
-          // But bias slightly upwards (-20) as before if space allows
-          final availableVerticalSpace = screenH - boardSize;
-          final boardTop = (availableVerticalSpace / 2 - 20)
-              .clamp(80.0, screenH - boardSize - 80.0);
-          final boardLeft = (screenW - boardSize) / 2;
+            // Center board vertically in the safe zone
+            // But bias slightly upwards (-20) as before if space allows
+            final availableVerticalSpace = screenH - boardSize;
+            final boardTop = (availableVerticalSpace / 2 - 20)
+                .clamp(80.0, screenH - boardSize - 80.0);
+            final boardLeft = (screenW - boardSize) / 2;
 
-          return Stack(
-            children: [
-              // ---------------- TOP BAR ----------------
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _TopBar(),
-              ),
-
-              // ---------------- BOARD (FLAME) ----------------
-              Positioned(
-                left: boardLeft,
-                top: boardTop,
-                width: boardSize,
-                height: boardSize,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: GameWidget(game: game),
+            return Stack(
+              children: [
+                // ---------------- TOP BAR ----------------
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _TopBar(),
                 ),
-              ),
 
-              // ---------------- AVATARS ----------------
-              // Dynamically render avatars based on visual seats
-              // Visual 0 = BL (Me), 1 = TL, 2 = TR, 3 = BR
-              for (int visualSeat = 0; visualSeat < 4; visualSeat++) ...[
-                if (game.getPlayerMetaByVisualSeat(visualSeat) != null)
-                  _buildAvatarAtVisualSeat(context, visualSeat, boardLeft,
-                      boardTop, boardSize, game),
-              ],
-
-              // ---------------- DICE POSITIONS ----------------
-              _buildDice(boardLeft, boardTop, boardSize),
-
-              // ---------------- FLYING BUBBLES & STATIC ----------------
-              Positioned.fill(
-                child: ChatOverlay(
-                  gameId: widget.gameId,
-                  players: game.state.players,
-                  localPlayerIndex: game.state.localPlayerIndex,
-                  boardRect: Rect.fromLTWH(
-                    boardLeft,
-                    boardTop,
-                    boardSize,
-                    boardSize,
+                // ---------------- BOARD (FLAME) ----------------
+                Positioned(
+                  left: boardLeft,
+                  top: boardTop,
+                  width: boardSize,
+                  height: boardSize,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: GameWidget(game: game),
                   ),
                 ),
-              ),
 
-              // ---------------- BOTTOM CHAT PILL ----------------
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _BottomArea(
-                  gameId: widget.gameId,
-                  isTeamChat: _isTeamChat,
-                  showTeamToggle: game.state.players.length > 2,
-                  players: game.state.players,
-                  onToggleTeam: () =>
-                      setState(() => _isTeamChat = !_isTeamChat),
+                // ---------------- AVATARS ----------------
+                // Dynamically render avatars based on visual seats
+                // Visual 0 = BL (Me), 1 = TL, 2 = TR, 3 = BR
+                for (int visualSeat = 0; visualSeat < 4; visualSeat++) ...[
+                  if (game.getPlayerMetaByVisualSeat(visualSeat) != null)
+                    _buildAvatarAtVisualSeat(context, visualSeat, boardLeft,
+                        boardTop, boardSize, game),
+                ],
+
+                // ---------------- DICE POSITIONS ----------------
+                _buildDice(boardLeft, boardTop, boardSize),
+
+                // ---------------- FLYING BUBBLES & STATIC ----------------
+                Positioned.fill(
+                  child: ChatOverlay(
+                    gameId: widget.gameId,
+                    players: game.state.players,
+                    localPlayerIndex: game.state.localPlayerIndex,
+                    boardRect: Rect.fromLTWH(
+                      boardLeft,
+                      boardTop,
+                      boardSize,
+                      boardSize,
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+
+                // ---------------- BOTTOM CHAT PILL ----------------
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _BottomArea(
+                    gameId: widget.gameId,
+                    isTeamChat: _isTeamChat,
+                    showTeamToggle: game.state.players.length > 2,
+                    players: game.state.players,
+                    onToggleTeam: () =>
+                        setState(() => _isTeamChat = !_isTeamChat),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -278,16 +326,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         break;
     }
 
+    // Determine if it's this player's turn
+    final isTurn = game.currentTurnUidNotifier.value == meta.uid;
+
     return Positioned(
       top: top,
       left: left,
       right: right,
-      child: _AvatarBadge(
-        label: meta.name ?? 'Player',
-        isTeam: meta.isTeam,
-        isYou: meta.isYou,
-        glowColor: meta.glowColor,
-      ),
+      child: ValueListenableBuilder<String?>(
+          valueListenable: game.currentTurnUidNotifier,
+          builder: (context, currentTurnUid, _) {
+            // Re-evaluate turn inside builder for reactivity
+            final activeTurn = currentTurnUid == meta.uid;
+            return GamePlayerProfile(
+              uid: meta.uid,
+              fallbackName: meta.name ?? 'Player',
+              fallbackAvatar: meta.avatarUrl,
+              isMe: meta.isYou,
+              isTeam: meta.isTeam,
+              isTurn: activeTurn,
+              teamColor: meta.glowColor,
+            );
+          }),
     );
   }
 
@@ -307,130 +367,34 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xCC0F1218), Colors.transparent],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.03),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withOpacity(0.08))),
+          child: Row(
+            children: [
+              // Back Button
+              GestureDetector(
+                  onTap: () => Navigator.of(context).pop(),
+                  child: Icon(Icons.arrow_back_ios_new,
+                      size: 18, color: Colors.white70)),
+              const SizedBox(width: 16),
+
+              // Title or Game ID
+              Text("Game Room",
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+
+              const Spacer(),
+              const GoldBalanceWidget(),
+            ],
           ),
         ),
-        child: Row(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.white10,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Icon(Icons.person, color: Colors.white54),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Lv. 3',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ],
-            ),
-            const Spacer(),
-            const GoldBalanceWidget(),
-          ],
-        ),
       ),
-    );
-  }
-}
-
-class _AvatarBadge extends StatelessWidget {
-  final String label;
-  final bool isTeam;
-  final bool isYou;
-  final Color? glowColor;
-
-  const _AvatarBadge({
-    required this.label,
-    this.isTeam = false,
-    this.isYou = false,
-    this.glowColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Determine colors
-    final Color textColor = Colors.white;
-    final Color avatarColor = Colors.white24;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            _avatarCircle(avatarColor),
-            if (isTeam)
-              Positioned(
-                top: -2,
-                right: -2,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: glowColor ?? Colors.greenAccent,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.black, width: 1.5),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (glowColor ?? Colors.greenAccent).withOpacity(0.6),
-                        blurRadius: 6,
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.shield,
-                    size: 10,
-                    color: Colors.black,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          isYou ? 'You' : label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _avatarCircle(Color color) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(22),
-        border: isTeam
-            ? Border.all(color: glowColor ?? Colors.greenAccent, width: 2)
-            : null,
-        boxShadow: isTeam
-            ? [
-                BoxShadow(
-                    color: (glowColor ?? Colors.greenAccent).withOpacity(0.5),
-                    blurRadius: 10)
-              ]
-            : null,
-      ),
-      child: const Icon(Icons.person, color: Colors.white54, size: 22),
     );
   }
 }
