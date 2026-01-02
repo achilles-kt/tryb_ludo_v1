@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
-import '../services/user_profile_service.dart';
-import '../widgets/profile/phone_linking_card.dart';
-import '../theme/app_theme.dart';
-import '../utils/country_utils.dart';
+import '../../services/auth_service.dart';
+import '../../services/user_profile_service.dart';
+import '../profile/edit/phone_verification_display.dart';
+import '../../theme/app_theme.dart';
+import '../../utils/country_utils.dart';
 
 class PhoneVerificationModal extends StatefulWidget {
   final VoidCallback onSuccess;
 
-  const PhoneVerificationModal({Key? key, required this.onSuccess})
-      : super(key: key);
+  const PhoneVerificationModal({super.key, required this.onSuccess});
 
   @override
   State<PhoneVerificationModal> createState() => _PhoneVerificationModalState();
@@ -142,7 +141,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
               "To sync contacts, we need to verify your phone number first. Matches are secure and hashed.",
               style: TextStyle(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 24),
-          PhoneLinkingCard(
+          PhoneVerificationDisplay(
             linkedPhoneNumber: null, // We act as if not linked yet
             codeSent: _codeSent,
             isSaving: _isSaving,

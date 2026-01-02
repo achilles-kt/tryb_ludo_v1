@@ -79,4 +79,16 @@ class ContactService {
       debugPrint("ContactService: Sync Error: $e");
     }
   }
+
+  Future<void> trySilentSync() async {
+    final status = await Permission.contacts.status;
+    if (status.isGranted) {
+      debugPrint("ContactService: Permission granted. Running silent sync...");
+      // Run unawaited or awaited? Awaited but doesn't block UI if called from async init
+      await syncContacts();
+    } else {
+      debugPrint(
+          "ContactService: Permission not granted. Skipping silent sync.");
+    }
+  }
 }

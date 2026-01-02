@@ -9,7 +9,7 @@ import '../screens/game_screen.dart';
 /// Global Overlay to listen for invites continuously.
 class InviteOverlay extends StatefulWidget {
   final Widget child;
-  const InviteOverlay({Key? key, required this.child}) : super(key: key);
+  const InviteOverlay({super.key, required this.child});
 
   @override
   _InviteOverlayState createState() => _InviteOverlayState();
@@ -160,8 +160,9 @@ class _InviteOverlayState extends State<InviteOverlay> {
                     onPressed: () async {
                       // ACCEPT
                       try {
-                        if (ctx.mounted)
+                        if (ctx.mounted) {
                           Navigator.pop(ctx); // Close dialog first
+                        }
 
                         final result = await _inviteService.respondToInvite(
                             inviteId, "accept");

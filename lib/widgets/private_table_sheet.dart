@@ -7,10 +7,10 @@ class PrivateTableSheet extends StatefulWidget {
   final VoidCallback onInvite;
 
   const PrivateTableSheet({
-    Key? key,
+    super.key,
     required this.onPublish,
     required this.onInvite,
-  }) : super(key: key);
+  });
 
   @override
   State<PrivateTableSheet> createState() => _PrivateTableSheetState();

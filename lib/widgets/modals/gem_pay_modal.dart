@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../constants.dart';
+import '../../constants.dart';
 
 class GemPayModal extends StatelessWidget {
   final int entryFee;
@@ -8,12 +8,12 @@ class GemPayModal extends StatelessWidget {
   final bool isLoading;
 
   const GemPayModal({
-    Key? key,
+    super.key,
     required this.entryFee,
     required this.gemFee,
     required this.onConfirm,
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

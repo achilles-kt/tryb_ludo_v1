@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-import '../widgets/glass_container.dart';
+import '../utils/image_utils.dart';
+
 import '../services/chat_service.dart';
 import '../services/presence_service.dart';
 import '../models/activity_item.dart';
 import '../widgets/activity_item_renderer.dart';
-import '../widgets/chat_input_bar.dart';
+import '../widgets/chat/chat_input_bar.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
@@ -15,11 +16,11 @@ class ConversationScreen extends StatefulWidget {
   final String peerAvatar;
 
   const ConversationScreen({
-    Key? key,
+    super.key,
     required this.peerId,
     required this.peerName,
     required this.peerAvatar,
-  }) : super(key: key);
+  });
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -143,11 +144,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             CircleAvatar(
-              backgroundImage: widget.peerAvatar.isNotEmpty
-                  ? (widget.peerAvatar.startsWith('http')
-                      ? NetworkImage(widget.peerAvatar)
-                      : AssetImage(widget.peerAvatar) as ImageProvider)
-                  : const AssetImage('assets/avatars/a1.png'),
+              backgroundImage: ImageUtils.getAvatarProvider(widget.peerAvatar),
               radius: 20,
             ),
             const SizedBox(width: 12),

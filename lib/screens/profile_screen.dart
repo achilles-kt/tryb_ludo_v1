@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../theme/app_theme.dart';
-import '../widgets/glass_container.dart';
-import '../widgets/level_badge.dart';
+import '../widgets/common/glass_container.dart';
+import '../widgets/common/level_badge.dart';
 import '../utils/level_calculator.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

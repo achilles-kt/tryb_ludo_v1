@@ -43,6 +43,7 @@ export const updateRecentPlayers = functions.database
         const now = Date.now();
         const updates: any = {};
         const mode = game.mode || "2p";
+        const readPromises: Promise<void>[] = [];
 
         // Create pairs for everyone
         for (let i = 0; i < humanIds.length; i++) {
@@ -50,84 +51,52 @@ export const updateRecentPlayers = functions.database
                 const u1 = humanIds[i];
                 const u2 = humanIds[j];
 
-                // Update for U1
+                // 1. Always update Recently Played (History)
                 updates[`recentlyPlayed/${u1}/${u2}`] = {
                     gameId,
                     lastPlayedAt: now,
                     mode
                 };
-
-                // Update for U2
                 updates[`recentlyPlayed/${u2}/${u1}`] = {
                     gameId,
                     lastPlayedAt: now,
                     mode
                 };
+
+                // 2. Check Friendship for Suggestions
+                readPromises.push((async () => {
+                    const fSnap = await db.ref(`friends/${u1}/${u2}/status`).get();
+                    const status = fSnap.exists() ? fSnap.val() : null;
+
+                    // If NOT friend and NOT pending/requested, add to suggested
+                    if (status !== 'friend' && status !== 'pending' && status !== 'requested') {
+                        // Add reciprocal suggestions
+                        updates[`suggestedFriends/${u1}/${u2}`] = {
+                            source: 'recent_game',
+                            ts: now,
+                            gameId
+                        };
+                        updates[`suggestedFriends/${u2}/${u1}`] = {
+                            source: 'recent_game',
+                            ts: now,
+                            gameId
+                        };
+                    }
+                })());
             }
         }
+
+        await Promise.all(readPromises);
 
         if (Object.keys(updates).length > 0) {
             await db.ref().update(updates);
-            console.log(`Updated recentlyPlayed for ${humanIds.length} players.`);
+            console.log(`Updated social lists (Recent + Suggested) for ${humanIds.length} players.`);
         }
 
         return null;
     });
 
 // ---------------------------------------------------------
-// 2. Notify on Friend Request
+// 2. [REMOVED] Notify on Friend Request 
+// (Moved to notification_triggers.onFriendRelationshipUpdate)
 // ---------------------------------------------------------
-export const notifyFriendRequest = functions.database
-    .ref("friends/{uid}/{friendUid}")
-    .onWrite(async (change, context) => {
-        const after = change.after.val();
-        const before = change.before.val();
-
-        // 1. Only care if status CHANGED to 'pending' (Request Received)
-        if (!after || after.status !== "pending") {
-            return null;
-        }
-        if (before && before.status === "pending") {
-            return null; // Already notified
-        }
-
-        const receiverUid = context.params.uid;
-        const senderUid = context.params.friendUid;
-
-        console.log(`[FriendRequest] Notification: ${senderUid} -> ${receiverUid}`);
-
-        // 2. Fetch Sender Profile
-        const senderSnap = await db.ref(`users/${senderUid}/profile`).get();
-        if (!senderSnap.exists()) {
-            console.log(`[FriendRequest] Sender profile missing.`);
-            return null;
-        }
-        const sender = senderSnap.val();
-        const senderName = sender.displayName || "Someone";
-
-        // 3. Fetch Receiver Tokens
-        const tokensSnap = await db.ref(`users/${receiverUid}/fcmTokens`).get();
-        if (!tokensSnap.exists()) {
-            console.log(`[FriendRequest] No tokens for user ${receiverUid}.`);
-            return null;
-        }
-        const tokens = Object.keys(tokensSnap.val());
-
-        // 4. Send Notification
-        const payload = {
-            notification: {
-                title: "New Friend Request",
-                body: `${senderName} sent you a friend request!`,
-            },
-            data: {
-                type: "friend_request",
-                senderUid: senderUid
-            }
-        };
-
-        const admin = await import("firebase-admin"); // Dynamic import or ensured import
-        await admin.messaging().sendToDevice(tokens, payload);
-        console.log(`[FriendRequest] Sent to ${tokens.length} devices.`);
-
-        return null;
-    });

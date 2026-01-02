@@ -6,11 +6,11 @@ class LevelBadge extends StatelessWidget {
   final bool showLabel;
 
   const LevelBadge({
-    Key? key,
+    super.key,
     required this.level,
     this.size = 40,
     this.showLabel = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

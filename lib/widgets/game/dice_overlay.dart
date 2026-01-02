@@ -113,24 +113,27 @@ class _DiceOverlayState extends State<DiceOverlay>
           curve: Curves.easeOutBack,
           left: pos.dx,
           top: pos.dy,
-          child: GestureDetector(
-            onTap: canTapDice
-                ? () async {
-                    final currentUser = FirebaseAuth.instance.currentUser;
-                    debugPrint(
-                        '🎲 Tapping dice. Current User: ${currentUser?.uid}');
-                    if (currentUser == null) {
-                      debugPrint('❌ Cannot roll: User not signed in.');
-                      return;
-                    }
-                    try {
-                      await widget.game.rollDice();
-                    } catch (e) {
-                      debugPrint('❌ Error calling rollDice: $e');
-                    }
-                  }
-                : null, // disables taps when not allowed
-            child: _buildDiceWithTimer(phase, isMyTurn),
+          child: IgnorePointer(
+            ignoring: !canTapDice,
+            child: GestureDetector(
+              behavior: HitTestBehavior
+                  .opaque, // Ensure it catches taps when NOT ignored
+              onTap: () async {
+                final currentUser = FirebaseAuth.instance.currentUser;
+                debugPrint(
+                    '🎲 Tapping dice. Current User: ${currentUser?.uid}');
+                if (currentUser == null) {
+                  debugPrint('❌ Cannot roll: User not signed in.');
+                  return;
+                }
+                try {
+                  await widget.game.rollDice();
+                } catch (e) {
+                  debugPrint('❌ Error calling rollDice: $e');
+                }
+              },
+              child: _buildDiceWithTimer(phase, isMyTurn),
+            ),
           ),
         );
       },

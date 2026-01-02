@@ -3,18 +3,17 @@ import 'dart:convert'; // Added for jsonDecode
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../theme/app_theme.dart';
-import 'glass_container.dart';
+import 'common/glass_container.dart';
 import '../services/notification_service.dart';
 
 import '../services/presence_service.dart';
 
 class InAppNotificationOverlay extends StatefulWidget {
   final Widget child;
-  const InAppNotificationOverlay({Key? key, required this.child})
-      : super(key: key);
+  const InAppNotificationOverlay({super.key, required this.child});
 
   @override
-  _InAppNotificationOverlayState createState() =>
+  State<InAppNotificationOverlay> createState() =>
       _InAppNotificationOverlayState();
 }
 

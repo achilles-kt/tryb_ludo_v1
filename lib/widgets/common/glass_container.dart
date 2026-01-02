@@ -15,7 +15,7 @@ class GlassContainer extends StatelessWidget {
   final VoidCallback? onTap;
 
   const GlassContainer({
-    Key? key,
+    super.key,
     required this.child,
     this.borderRadius = 20,
     this.padding = const EdgeInsets.all(15),
@@ -27,7 +27,7 @@ class GlassContainer extends StatelessWidget {
     this.onTap,
     this.borderColor,
     this.border,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

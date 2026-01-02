@@ -35,14 +35,31 @@ class SocialService {
       if (friendUids.isEmpty) return Stream.value(<UserModel>[]);
 
       final streams = friendUids.map((uid) {
+        // PRE-FILTER: ID check
+        if (uid.toLowerCase().startsWith('bot_') ||
+            uid.toLowerCase().startsWith('computer_')) {
+          return Stream.value(
+              UserModel(id: 'BOT_HIDDEN', name: '', avatar: ''));
+        }
+
         return _db.child('users/$uid/profile').onValue.map((profileEvent) {
           final profileData =
               profileEvent.snapshot.value as Map<dynamic, dynamic>? ?? {};
+
+          // Double check name
+          final name = profileData['name'] ?? profileData['displayName'] ?? '';
+          if (name.toString().toLowerCase().contains('(bot)')) {
+            return UserModel(id: 'BOT_HIDDEN', name: '', avatar: '');
+          }
+
           return UserModel.fromMap(uid, profileData);
         });
       });
 
-      return CombineLatestStream.list<UserModel>(streams).asBroadcastStream();
+      return CombineLatestStream.list<UserModel>(streams).map((list) {
+        // Remove any hidden bots
+        return list.where((u) => u.id != 'BOT_HIDDEN').toList();
+      }).asBroadcastStream();
     }).asBroadcastStream();
   }
 
@@ -67,27 +84,40 @@ class SocialService {
           friendsMap.addAll(friendData.cast<String, dynamic>());
         }
 
-        // 2. Collect Entries (UID -> Timestamp)
+        // 0. Merge Data Sources
         final uniqueEntries = <String, int>{};
 
-        // Add Recent
-        if (recentData != null && recentData is Map) {
-          recentData.forEach((key, value) {
-            if (value is Map) {
-              final ts = (value['lastPlayedAt'] as num?)?.toInt() ?? 0;
-              uniqueEntries[key as String] = ts;
+        // A. Add Pending Requests (Highest Priority - Fake future timestamp)
+        if (friendData != null && friendData is Map) {
+          friendData.forEach((key, value) {
+            if (value is Map && value['status'] == 'pending') {
+              // Give huge timestamp to float to top
+              uniqueEntries[key as String] = 9999999999999;
             }
           });
         }
 
-        // Add Suggested (May overwrite recent if newer, or keep recent? Suggestions are usually high prio)
+        // B. Add Recent
+        if (recentData != null && recentData is Map) {
+          recentData.forEach((key, value) {
+            if (value is Map) {
+              final ts = (value['lastPlayedAt'] as num?)?.toInt() ?? 0;
+              // Don't overwrite if existing is "pending" (future ts)
+              if (!uniqueEntries.containsKey(key) || uniqueEntries[key]! < ts) {
+                uniqueEntries[key as String] = ts;
+              }
+            }
+          });
+        }
+
+        // C. Add Suggested
         if (suggestedData != null && suggestedData is Map) {
           suggestedData.forEach((key, value) {
             if (value is Map) {
               final ts = (value['ts'] as num?)?.toInt() ?? 0;
-              // If already exists, keep max timestamp?
-              final existing = uniqueEntries[key as String] ?? 0;
-              uniqueEntries[key as String] = ts > existing ? ts : existing;
+              if (!uniqueEntries.containsKey(key)) {
+                uniqueEntries[key as String] = ts;
+              }
             }
           });
         }
@@ -104,23 +134,29 @@ class SocialService {
         final filteredUidsWithStatus = <String, String>{}; // UID -> Status
 
         for (var uid in sortedKeys) {
-          final fVal = friendsMap[uid];
+          // BOT FILTER: specific ID patterns or bot names
+          if (uid.toLowerCase().startsWith('bot_') ||
+              uid.toLowerCase().startsWith('computer_')) {
+            continue;
+          }
 
+          final fVal = friendsMap[uid];
           String status = 'none';
+
           if (fVal == true) {
             status = 'friend';
           } else if (fVal is Map) {
             status = fVal['status'] ?? 'none';
           }
 
-          // Filter: Hide ONLY if already accepted friend
+          // Filter: Hide ONLY if already accepted friend (Allow pending/requested/none)
           if (status == 'friend') continue;
 
           filteredUidsWithStatus[uid] = status;
         }
 
         return filteredUidsWithStatus.entries
-            .take(10)
+            .take(15) // Increased limit to accommodate requests
             .toList(); // MapEntry<String, String>
       },
     ).switchMap((List<MapEntry<String, String>> entries) {
@@ -132,11 +168,23 @@ class SocialService {
         return _db.child('users/$uid/profile').onValue.map((profileEvent) {
           final profileData =
               profileEvent.snapshot.value as Map<dynamic, dynamic>? ?? {};
+
+          // Double check name if ID didn't catch it
+          final name = profileData['name'] ?? profileData['displayName'] ?? '';
+          if (name.toString().toLowerCase().contains('(bot)')) {
+            // Return dummy to filter out in CombineLatest?
+            // CombineLatest waits for all. Better to return a dummy UserModel and filter list
+            return UserModel(id: 'BOT_HIDDEN', name: '', avatar: '');
+          }
+
           return UserModel.fromMap(uid, profileData, friendStatus: fStatus);
         });
       });
 
-      return CombineLatestStream.list<UserModel>(streams).asBroadcastStream();
+      return CombineLatestStream.list<UserModel>(streams).map((list) {
+        // Remove any hidden bots
+        return list.where((u) => u.id != 'BOT_HIDDEN').toList();
+      }).asBroadcastStream();
     }).asBroadcastStream();
   }
 

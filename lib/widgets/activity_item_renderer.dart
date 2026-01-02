@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import '../models/activity_item.dart';
 import '../theme/app_theme.dart';
-import 'glass_container.dart';
+import 'common/glass_container.dart';
 
 class ActivityItemRenderer extends StatelessWidget {
   final ActivityItem item;
   final bool isMe;
 
   const ActivityItemRenderer({
-    Key? key,
+    super.key,
     required this.item,
     required this.isMe,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

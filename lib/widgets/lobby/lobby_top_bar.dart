@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../theme/app_theme.dart';
+// import '../../controllers/lobby_controller.dart'; // Removed unused
+import '../../utils/image_utils.dart'; // Added import
 import '../../utils/location_service.dart';
 import '../../utils/level_calculator.dart';
 import '../../utils/currency_formatter.dart';
@@ -12,10 +14,10 @@ class LobbyTopBar extends StatefulWidget {
       onProfileTap;
 
   const LobbyTopBar({
-    Key? key,
+    super.key,
     required this.currentUser,
     required this.onProfileTap,
-  }) : super(key: key);
+  });
 
   @override
   State<LobbyTopBar> createState() => _LobbyTopBarState();
@@ -23,6 +25,16 @@ class LobbyTopBar extends StatefulWidget {
 
 class _LobbyTopBarState extends State<LobbyTopBar> {
   bool _hasAttemptedLocationFetch = false;
+
+  // Assuming LobbyController is initialized and available,
+  // or that the avatar logic needs to be adapted to existing widget.currentUser and avatar variable.
+  // For this change, we'll assume a controller instance is needed to match the instruction's snippet.
+  // In a real app, this controller would likely be provided via a Provider or similar state management.
+  // For the purpose of this edit, we'll create a dummy one or adapt the logic.
+  // Given the instruction's snippet, we'll adapt the logic to use existing `widget.currentUser` and `avatar` variable.
+  // The instruction's snippet `controller.currentUser?.photoURL ?? controller.userAvatar`
+  // implies a preference for `photoURL` from the User object, then a fallback.
+  // We'll use `widget.currentUser?.photoURL` as the primary source, falling back to the `avatar` variable from Firebase.
 
   @override
   Widget build(BuildContext context) {
@@ -95,6 +107,11 @@ class _LobbyTopBarState extends State<LobbyTopBar> {
                     (totalSnap.data?.snapshot.value as num?)?.toInt() ?? 0;
                 final levelInfo = LevelCalculator.calculate(totalEarned);
 
+                // Determine the avatar source, prioritizing Firebase User's photoURL
+                // then falling back to the avatar from the database.
+                final String avatarSource =
+                    widget.currentUser?.photoURL ?? avatar;
+
                 return InkWell(
                   onTap: () => widget.onProfileTap(
                       name, avatar, displayCity, displayCountry),
@@ -112,8 +129,8 @@ class _LobbyTopBarState extends State<LobbyTopBar> {
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(color: Colors.white24),
                                 image: DecorationImage(
-                                    image: AssetImage(
-                                        avatar), // Or NetworkImage if URL
+                                    image: ImageUtils.getAvatarProvider(
+                                        avatarSource), // Changed line
                                     fit: BoxFit.cover)),
                           ),
                           Positioned(

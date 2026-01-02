@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../theme/app_theme.dart';
-import 'glass_container.dart';
+import '../../theme/app_theme.dart';
+import '../common/glass_container.dart';
 
 typedef OnPairedCallback = void Function({
   required String tableId,
@@ -141,8 +141,9 @@ class _WaitingMatchModalState extends State<WaitingMatchModal> {
         } else {
           // 2P Logic
           if (status == 'queued') {
-            if (mounted)
+            if (mounted) {
               setState(() => _statusText = 'Queued — waiting for opponent');
+            }
           }
         }
 

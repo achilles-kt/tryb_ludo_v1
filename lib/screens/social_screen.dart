@@ -7,8 +7,8 @@ import '../models/user_model.dart';
 import '../services/social_service.dart';
 import '../services/user_profile_service.dart';
 import '../services/presence_service.dart';
-import '../widgets/phone_verification_modal.dart';
-import '../widgets/profile_edit_modal.dart';
+import '../widgets/modals/phone_verification_modal.dart';
+import '../widgets/modals/profile_edit_modal.dart';
 
 // New UI Components
 import '../widgets/social/social_header.dart';
@@ -17,7 +17,7 @@ import '../widgets/social/friend_suggestion_card.dart';
 import '../widgets/social/friend_tile.dart';
 
 class SocialScreen extends StatefulWidget {
-  const SocialScreen({Key? key}) : super(key: key);
+  const SocialScreen({super.key});
 
   @override
   State<SocialScreen> createState() => _SocialScreenState();
@@ -136,10 +136,16 @@ class _SocialScreenState extends State<SocialScreen> {
                                   itemCount: players.length,
                                   itemBuilder: (ctx, i) {
                                     final p = players[i];
-                                    // Determine context text based on status or random for now
                                     String contextText = "Played Recently";
-                                    if (p.friendStatus == 'requested')
+                                    bool showActions = true;
+
+                                    if (p.friendStatus == 'pending') {
+                                      contextText = "Request Received";
+                                    } else if (p.friendStatus == 'requested') {
                                       contextText = "Request Sent";
+                                      showActions =
+                                          false; // Hide buttons if sent
+                                    }
 
                                     return FriendSuggestionCard(
                                       name: p.name,
@@ -147,18 +153,33 @@ class _SocialScreenState extends State<SocialScreen> {
                                           ? p.avatar
                                           : 'assets/avatars/a1.png',
                                       contextText: contextText,
+                                      showActions: showActions,
                                       onAccept: () {
-                                        _socialService
-                                            .sendFriendRequest(p.id)
-                                            .then((_) => ScaffoldMessenger.of(
-                                                    context)
-                                                .showSnackBar(const SnackBar(
-                                                    content: Text(
-                                                        "Request Sent!"))));
+                                        if (p.friendStatus == 'pending') {
+                                          _socialService
+                                              .respondToFriendRequest(
+                                                  p.id, 'accept')
+                                              .then((_) => ScaffoldMessenger.of(
+                                                      context)
+                                                  .showSnackBar(const SnackBar(
+                                                      content: Text(
+                                                          "Friend Request Accepted!"))));
+                                        } else {
+                                          _socialService
+                                              .sendFriendRequest(p.id)
+                                              .then((_) => ScaffoldMessenger.of(
+                                                      context)
+                                                  .showSnackBar(const SnackBar(
+                                                      content: Text(
+                                                          "Request Sent!"))));
+                                        }
                                       },
                                       onDeny: () {
-                                        // Just hide from list logically or visual ignore
-                                        // For now, no-op or clear
+                                        if (p.friendStatus == 'pending') {
+                                          _socialService.respondToFriendRequest(
+                                              p.id, 'reject');
+                                        }
+                                        // TODO: Implement Hide Suggestion for non-pending
                                       },
                                     );
                                   },

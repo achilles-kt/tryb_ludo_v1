@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/activity_item.dart';
 import '../../services/chat_service.dart';
-import 'flying_bubble.dart';
+import 'chat/chat_bubble_manager.dart';
+import 'chat/flying_emoji_manager.dart';
 
 class ChatOverlay extends StatefulWidget {
   final String gameId;
@@ -27,10 +28,9 @@ class _ChatOverlayState extends State<ChatOverlay> {
   final ActivityService _chatService = ActivityService();
   StreamSubscription? _chatSub;
 
-  // Track active bubbles by Sender ID to ensure only 1 per user
-  final Map<String, ActivityItem> _activeBubbles = {};
-  final Map<String, Timer> _bubbleTimers = {};
-  final List<Map<String, dynamic>> _flyingEmojis = [];
+  final ChatBubbleManager _bubbleManager = ChatBubbleManager();
+  final FlyingEmojiManager _emojiManager = FlyingEmojiManager();
+
   final Set<String> _processedMsgIds = {};
 
   @override
@@ -40,33 +40,13 @@ class _ChatOverlayState extends State<ChatOverlay> {
         '🔍 Chat: Overlay Init | GameID: ${widget.gameId} | LocalPlayer: ${widget.localPlayerIndex}');
 
     // Determine Conversation IDs to listen to
-    final allUids = widget.players.keys.toList();
-    final gpId = _chatService.getCanonicalId(allUids);
-
-    // Team Chat
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    String? teamId;
-    if (myUid != null && widget.players.containsKey(myUid)) {
-      final myTeam = widget.players[myUid]['team'];
-      if (myTeam != null) {
-        final teamUids = widget.players.entries
-            .where((e) => e.value['team'] == myTeam)
-            .map((e) => e.key)
-            .toList();
-        if (teamUids.length > 1) {
-          teamId = _chatService.getCanonicalId(teamUids);
-        }
-      }
-    }
-
-    final ids = [gpId];
-    if (teamId != null && teamId != gpId) {
-      ids.add(teamId);
-    }
-
+    final ids =
+        _chatService.getGameConversationIds(widget.gameId, widget.players);
     debugPrint('🔍 Chat: Listening to Unified Streams: $ids');
 
-    // Phase 14 Fix: Ensure conversations exist before listening
+    final allUids = widget.players.keys.toList();
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+
     _ensureAndListen(ids, allUids, myUid);
   }
 
@@ -106,9 +86,9 @@ class _ChatOverlayState extends State<ChatOverlay> {
   @override
   void dispose() {
     _chatSub?.cancel();
-    for (var t in _bubbleTimers.values) {
-      t.cancel();
-    }
+    _bubbleManager.dispose();
+    _emojiManager
+        .dispose(); // Note: FlyingEmojiManager doesn't strictly need dispose based on current impl but good practice if timers used
     super.dispose();
   }
 
@@ -116,10 +96,6 @@ class _ChatOverlayState extends State<ChatOverlay> {
   void didUpdateWidget(ChatOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
     // Check if players list changed (count or keys)
-    // Simple check: Length or String representation of keys
-    /*
-      Ideally we check if the set of IDs we need to listen to has changed.
-    */
     final oldKeys = oldWidget.players.keys.toSet();
     final newKeys = widget.players.keys.toSet();
 
@@ -133,29 +109,10 @@ class _ChatOverlayState extends State<ChatOverlay> {
     _chatSub?.cancel();
 
     // Re-Determine Conversation IDs
+    final ids =
+        _chatService.getGameConversationIds(widget.gameId, widget.players);
     final allUids = widget.players.keys.toList();
-    final gpId = _chatService.getCanonicalId(allUids);
-
-    // Team Chat
     final myUid = FirebaseAuth.instance.currentUser?.uid;
-    String? teamId;
-    if (myUid != null && widget.players.containsKey(myUid)) {
-      final myTeam = widget.players[myUid]['team'];
-      if (myTeam != null) {
-        final teamUids = widget.players.entries
-            .where((e) => e.value['team'] == myTeam)
-            .map((e) => e.key)
-            .toList();
-        if (teamUids.length > 1) {
-          teamId = _chatService.getCanonicalId(teamUids);
-        }
-      }
-    }
-
-    final ids = [gpId];
-    if (teamId != null && teamId != gpId) {
-      ids.add(teamId);
-    }
 
     debugPrint('🔍 Chat: Stream Refresh Listen: $ids');
 
@@ -190,7 +147,7 @@ class _ChatOverlayState extends State<ChatOverlay> {
       return true;
     }).toList();
 
-    // Sort by time so we process latest last (though stream usually sorted)
+    // Sort by time so we process latest last
     recentMsgs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
     for (final msg in recentMsgs) {
@@ -202,71 +159,20 @@ class _ChatOverlayState extends State<ChatOverlay> {
     final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final isMe = msg.senderId == myUid;
 
-    // 1. Update Active Bubble (Latest wins)
-    // If text is purely emojis/very short, we might skip bubble?
-    // User requested "text+emoji" as bubble.
-    // We will show bubble for everything.
+    // 1. Update Active Bubble
+    _bubbleManager.addMessage(msg);
 
-    setState(() {
-      _activeBubbles[msg.senderId] = msg;
-    });
-
-    // Reset Timer
-    _bubbleTimers[msg.senderId]?.cancel();
-    _bubbleTimers[msg.senderId] = Timer(const Duration(seconds: 8), () {
-      if (mounted) {
-        setState(() {
-          // Only remove if it's still THIS message (check timestamp/id)
-          if (_activeBubbles[msg.senderId]?.id == msg.id) {
-            _activeBubbles.remove(msg.senderId);
-          }
-        });
-      }
-    });
-
-    // 2. Flying Emojis (Visual Flair only for very short emoji-like text)
-    // Only if it looks like just emojis (heuristic len <= 4)
+    // 2. Flying Emojis
     final bool shouldFly = msg.text.runes.length <= 4;
     if (shouldFly) {
-      _triggerFlyingEmoji(msg, isMe);
+      final bubblePos = _calculateBubblePosition(msg.senderId);
+      if (bubblePos == null) return;
+
+      final size = MediaQuery.of(context).size;
+      final flyTargetPos = Offset(size.width / 2 - 24, size.height / 2 - 24);
+
+      _emojiManager.trigger(msg, isMe, bubblePos, flyTargetPos);
     }
-  }
-
-  void _triggerFlyingEmoji(ActivityItem msg, bool isMe) {
-    // ... Calculate start pos based on visual seat ...
-    // Re-using simplified logic for flying start
-    // (Ideally share with bubble pos, but flying is fire-and-forget)
-
-    // We'll calculate start pos same as bubble for consistency
-    final bubblePos = _calculateBubblePosition(msg.senderId);
-    if (bubblePos == null) return;
-
-    final size = MediaQuery.of(context).size;
-    final flyTargetPos = Offset(size.width / 2 - 24, size.height / 2 - 24);
-
-    Timer(const Duration(milliseconds: 200), () {
-      if (!mounted) return;
-      final flyId = 'fly_${msg.timestamp}';
-      setState(() {
-        _flyingEmojis.add({
-          'id': flyId,
-          'widget': FlyingBubble(
-            key: ValueKey(flyId),
-            text: msg.text,
-            isMe: isMe,
-            startPos: bubblePos,
-            targetPos: flyTargetPos,
-            onComplete: () {
-              if (mounted) {
-                setState(() {
-                  _flyingEmojis.removeWhere((e) => e['id'] == flyId);
-                });
-              }
-            },
-          )
-        });
-      });
-    });
   }
 
   // Calculate Bubble Anchor Position AND Tail Alignment
@@ -304,45 +210,24 @@ class _ChatOverlayState extends State<ChatOverlay> {
 
     // Avatar layout constants from GameScreen
     final avatarSize = 44.0;
-    final padding = 8.0; // Space between avatar and bubble
+    final padding = 8.0;
 
-    // Visual Avatars Coords (Top-Left point of Avatar Image):
-    // BL (0): Left 16, Top boardTop + boardSize + 32
-    // TL (1): Left 16, Top boardTop - 64
-    // TR (2): Right 16 (=> Left = W - 16 - 44), Top boardTop - 64
-    // BR (3): Right 16 (=> Left = W - 16 - 44), Top boardTop + boardSize + 32
-
+    // Visual Avatars Coords
     final leftColX = 16.0;
     final rightColX = size.width - 16.0 - avatarSize;
     final topRowY = boardTop - 64;
     final bottomRowY = boardTop + boardSize + 32;
 
     switch (visualIndex) {
-      case 0: // BL (Me) -> Bubble BELOW Avatar
-        // Visual: Avatar is at (leftColX, bottomRowY).
-        // Anchor: Bottom-Left of Avatar + Padding Down.
-        // Bubble Alignment: TopLeft (Starts at Anchor, grows Down & Right).
+      case 0:
         return Offset(leftColX, bottomRowY + avatarSize + padding);
-
-      case 1: // TL -> Bubble ABOVE Avatar
-        // Visual: Avatar is at (leftColX, topRowY).
-        // Anchor: Top-Left of Avatar - Padding Up.
-        // Bubble Alignment: BottomLeft (Ends at Anchor, grew Up & Right).
+      case 1:
         return Offset(leftColX, topRowY - padding);
-
-      case 2: // TR -> Bubble ABOVE Avatar
-        // Visual: Avatar is at (rightColX, topRowY).
-        // Anchor: Top-Right of Avatar - Padding Up.
-        // Bubble Alignment: BottomRight (Ends at Anchor, grew Up & Left).
+      case 2:
         return Offset(rightColX + avatarSize, topRowY - padding);
-
-      case 3: // BR -> Bubble BELOW Avatar
-        // Visual: Avatar is at (rightColX, bottomRowY).
-        // Anchor: Bottom-Right of Avatar + Padding Down.
-        // Bubble Alignment: TopRight (Starts at Anchor, grows Down & Left).
+      case 3:
         return Offset(
             rightColX + avatarSize, bottomRowY + avatarSize + padding);
-
       default:
         return Offset(size.width / 2, size.height / 2);
     }
@@ -371,13 +256,13 @@ class _ChatOverlayState extends State<ChatOverlay> {
     }
 
     switch (visualIndex) {
-      case 0: // BL -> Bubble Below -> Tail at TopLeft
+      case 0:
         return Alignment.topLeft;
-      case 1: // TL -> Bubble Above -> Tail at BottomLeft
+      case 1:
         return Alignment.bottomLeft;
-      case 2: // TR -> Bubble Above -> Tail at BottomRight
+      case 2:
         return Alignment.bottomRight;
-      case 3: // BR -> Bubble Below -> Tail at TopRight
+      case 3:
         return Alignment.topRight;
       default:
         return Alignment.center;
@@ -388,27 +273,43 @@ class _ChatOverlayState extends State<ChatOverlay> {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Static Bubbles (Single per user)
-        ..._activeBubbles.entries.map((entry) {
-          final uid = entry.key;
-          final msg = entry.value;
-          final pos = _calculateBubblePosition(uid);
-          final align = _getBubbleAlignment(uid);
+        // Static Bubbles
+        ListenableBuilder(
+          listenable: _bubbleManager,
+          builder: (context, _) {
+            return Stack(
+              children: _bubbleManager.activeBubbles.entries.map((entry) {
+                final uid = entry.key;
+                final msg = entry.value;
+                final pos = _calculateBubblePosition(uid);
+                final align = _getBubbleAlignment(uid);
 
-          if (pos == null) return const SizedBox.shrink();
+                if (pos == null) return const SizedBox.shrink();
 
-          return AnimatedChatBubble(
-            key: ValueKey(msg.id), // New ID = Rebuild = Animation
-            text: msg.text,
-            isMe: uid == (FirebaseAuth.instance.currentUser?.uid),
-            isTeam: msg.isTeam,
-            anchor: pos,
-            tailAlignment: align,
-          );
-        }),
+                return AnimatedChatBubble(
+                  key: ValueKey(msg.id),
+                  text: msg.text,
+                  isMe: uid == (FirebaseAuth.instance.currentUser?.uid),
+                  isTeam: msg.isTeam,
+                  anchor: pos,
+                  tailAlignment: align,
+                );
+              }).toList(),
+            );
+          },
+        ),
 
         // Flying Emojis
-        ..._flyingEmojis.map((e) => e['widget'] as Widget),
+        ListenableBuilder(
+          listenable: _emojiManager,
+          builder: (context, _) {
+            return Stack(
+              children: _emojiManager.flyingEmojis
+                  .map((e) => e['widget'] as Widget)
+                  .toList(),
+            );
+          },
+        ),
       ],
     );
   }

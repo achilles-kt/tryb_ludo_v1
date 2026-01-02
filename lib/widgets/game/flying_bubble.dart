@@ -9,13 +9,13 @@ class FlyingBubble extends StatefulWidget {
   final VoidCallback onComplete;
 
   const FlyingBubble({
-    Key? key,
+    super.key,
     required this.text,
     required this.isMe,
     required this.startPos,
     required this.targetPos,
     required this.onComplete,
-  }) : super(key: key);
+  });
 
   @override
   State<FlyingBubble> createState() => _FlyingBubbleState();

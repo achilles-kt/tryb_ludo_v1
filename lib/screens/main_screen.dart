@@ -7,7 +7,7 @@ import '../widgets/invite_overlay.dart';
 
 class MainScreen extends StatefulWidget {
   final String? initialDeepLink;
-  const MainScreen({Key? key, this.initialDeepLink}) : super(key: key);
+  const MainScreen({super.key, this.initialDeepLink});
 
   @override
   _MainScreenState createState() => _MainScreenState();

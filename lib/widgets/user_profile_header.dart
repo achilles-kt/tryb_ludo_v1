@@ -3,7 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/location_service.dart';
 import '../utils/level_calculator.dart';
-import '../widgets/level_badge.dart';
+import 'common/level_badge.dart';
 
 class UserProfileHeader extends StatefulWidget {
   final User? currentUser;
@@ -11,10 +11,10 @@ class UserProfileHeader extends StatefulWidget {
       onProfileTap;
 
   const UserProfileHeader({
-    Key? key,
+    super.key,
     required this.currentUser,
     required this.onProfileTap,
-  }) : super(key: key);
+  });
 
   @override
   State<UserProfileHeader> createState() => _UserProfileHeaderState();

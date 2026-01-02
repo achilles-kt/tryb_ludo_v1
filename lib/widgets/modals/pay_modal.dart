@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import 'glass_container.dart';
-import '../utils/currency_formatter.dart';
+import '../../theme/app_theme.dart';
+import '../common/glass_container.dart';
 
 class PayModal extends StatelessWidget {
   final String entryText;
   final VoidCallback onJoin;
 
-  const PayModal({Key? key, required this.entryText, required this.onJoin})
-      : super(key: key);
+  const PayModal({super.key, required this.entryText, required this.onJoin});
 
   @override
   Widget build(BuildContext context) {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class PhoneLinkingCard extends StatefulWidget {
+class PhoneVerificationDisplay extends StatelessWidget {
   final String? linkedPhoneNumber; // null if not linked
   final bool codeSent;
   final bool isSaving;
@@ -10,7 +10,7 @@ class PhoneLinkingCard extends StatefulWidget {
   final VoidCallback onVerifyOtp;
   final VoidCallback onChangeNumber; // E.g. to reset state
 
-  const PhoneLinkingCard({
+  const PhoneVerificationDisplay({
     super.key,
     required this.linkedPhoneNumber,
     required this.codeSent,
@@ -22,11 +22,6 @@ class PhoneLinkingCard extends StatefulWidget {
     required this.onChangeNumber,
   });
 
-  @override
-  State<PhoneLinkingCard> createState() => _PhoneLinkingCardState();
-}
-
-class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
   @override
   Widget build(BuildContext context) {
     const cardBg = Color(0xFF181B21);
@@ -58,7 +53,7 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
           const SizedBox(height: 12),
 
           // STATE A: LINKED
-          if (widget.linkedPhoneNumber != null) ...[
+          if (linkedPhoneNumber != null) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -71,11 +66,11 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
                   const Icon(Icons.check_circle, color: Colors.green, size: 16),
                   const SizedBox(width: 8),
                   Expanded(
-                      child: Text(widget.linkedPhoneNumber!,
+                      child: Text(linkedPhoneNumber!,
                           style: const TextStyle(
                               color: Colors.white, fontSize: 13))),
                   TextButton(
-                      onPressed: widget.onChangeNumber,
+                      onPressed: onChangeNumber,
                       child: const Text("Change",
                           style: TextStyle(color: primary, fontSize: 12)))
                 ],
@@ -94,9 +89,9 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.white10)),
                     child: TextField(
-                      controller: widget.phoneController,
+                      controller: phoneController,
                       keyboardType: TextInputType.phone,
-                      enabled: !widget.codeSent,
+                      enabled: !codeSent,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: const InputDecoration(
                         border: InputBorder.none,
@@ -108,9 +103,9 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (!widget.codeSent)
+                if (!codeSent)
                   ElevatedButton(
-                    onPressed: widget.isSaving ? null : widget.onSendCode,
+                    onPressed: isSaving ? null : onSendCode,
                     style: ElevatedButton.styleFrom(
                         backgroundColor: primary,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -122,7 +117,7 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
               ],
             ),
 
-            if (widget.codeSent) ...[
+            if (codeSent) ...[
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -135,7 +130,7 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: gold)),
                       child: TextField(
-                        controller: widget.otpController,
+                        controller: otpController,
                         keyboardType: TextInputType.number,
                         style:
                             const TextStyle(color: Colors.white, fontSize: 14),
@@ -150,7 +145,7 @@ class _PhoneLinkingCardState extends State<PhoneLinkingCard> {
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: widget.isSaving ? null : widget.onVerifyOtp,
+                    onPressed: isSaving ? null : onVerifyOtp,
                     style: ElevatedButton.styleFrom(
                         backgroundColor: gold,
                         padding: const EdgeInsets.symmetric(horizontal: 16),

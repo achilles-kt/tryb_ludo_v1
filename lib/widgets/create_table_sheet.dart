@@ -4,8 +4,7 @@ import '../constants.dart';
 class CreateTableOptionsSheet extends StatelessWidget {
   final Function(String mode) onSelect;
 
-  const CreateTableOptionsSheet({Key? key, required this.onSelect})
-      : super(key: key);
+  const CreateTableOptionsSheet({super.key, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {

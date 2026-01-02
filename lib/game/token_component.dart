@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'board_layout.dart';
 import 'ludo_game.dart';
-import 'state/game_controller.dart';
+import '../controllers/game_controller.dart';
 
 class TokenComponent extends PositionComponent with TapCallbacks {
   final String ownerUid;
@@ -19,7 +19,6 @@ class TokenComponent extends PositionComponent with TapCallbacks {
   // Stack state
   Vector2 _stackOffset = Vector2.zero();
   bool _isStacked = false;
-  int _stackIndex = 0;
 
   TokenComponent({
     required this.ownerUid,
@@ -131,7 +130,7 @@ class TokenComponent extends PositionComponent with TapCallbacks {
     Vector2? stackOffset,
   }) {
     _isStacked = isStacked;
-    _stackIndex = stackIndex;
+
     _stackOffset = stackOffset ?? Vector2.zero();
     _updateWorldPosition();
   }

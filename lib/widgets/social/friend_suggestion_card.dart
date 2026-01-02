@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../utils/image_utils.dart';
 import '../../theme/app_theme.dart';
-import '../glass_container.dart';
+import '../common/glass_container.dart';
 
 class FriendSuggestionCard extends StatelessWidget {
   final String name;
@@ -8,15 +9,17 @@ class FriendSuggestionCard extends StatelessWidget {
   final String contextText; // e.g. "Mutual Friend"
   final VoidCallback onAccept;
   final VoidCallback onDeny;
+  final bool showActions;
 
   const FriendSuggestionCard({
-    Key? key,
+    super.key,
     required this.name,
     required this.avatarUrl,
     required this.contextText,
     required this.onAccept,
     required this.onDeny,
-  }) : super(key: key);
+    this.showActions = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +28,7 @@ class FriendSuggestionCard extends StatelessWidget {
       margin: const EdgeInsets.only(right: 12),
       child: GlassContainer(
         borderRadius: 16,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         color: Colors.white.withOpacity(0.03), // Subtle glass
         borderColor: Colors.white.withOpacity(0.08),
         child: Column(
@@ -38,14 +41,14 @@ class FriendSuggestionCard extends StatelessWidget {
                 border: Border.all(color: Colors.white10, width: 1),
               ),
               child: CircleAvatar(
-                radius: 24,
+                radius: 22,
                 backgroundColor: const Color(0xFF333333),
                 backgroundImage: avatarUrl.startsWith('http')
                     ? NetworkImage(avatarUrl)
-                    : AssetImage(avatarUrl) as ImageProvider,
+                    : ImageUtils.getAvatarProvider(avatarUrl),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
             // Name
             Text(
@@ -70,17 +73,23 @@ class FriendSuggestionCard extends StatelessWidget {
                 fontSize: 10,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
             // Actions
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _actionBtn(Icons.check, AppTheme.neonGreen, onAccept),
-                const SizedBox(width: 8),
-                _actionBtn(Icons.close, AppTheme.neonRed, onDeny),
-              ],
-            )
+            if (showActions)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _actionBtn(Icons.check, AppTheme.neonGreen, onAccept),
+                  const SizedBox(width: 8),
+                  _actionBtn(Icons.close, AppTheme.neonRed, onDeny),
+                ],
+              )
+            else
+              const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child:
+                      Icon(Icons.access_time, color: Colors.white30, size: 20))
           ],
         ),
       ),

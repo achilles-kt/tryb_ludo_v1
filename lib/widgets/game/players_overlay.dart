@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../game/ludo_game.dart';
+import '../../utils/image_utils.dart'; // Added
 
 class PlayersOverlay extends StatelessWidget {
   final LudoGame game;
@@ -93,28 +94,44 @@ class PlayersOverlay extends StatelessWidget {
   }
 
   Widget _avatar(PlayerMeta meta) {
-    return Container(
+    // 1. Ring Color (Player Color)
+    // 2. Turn Brightness (Active vs Inactive)
+    final Color ringColor =
+        meta.isTurn ? meta.playerColor : meta.playerColor.withOpacity(0.3);
+    final double ringWidth = meta.isTurn ? 3.0 : 2.0;
+
+    // 3. Team Glow (Background Shadow)
+    final List<BoxShadow> shadows = [];
+    if (meta.isTeam) {
+      shadows.add(BoxShadow(
+        color: (meta.glowColor ?? meta.playerColor).withOpacity(0.6),
+        blurRadius: 20,
+        spreadRadius: 4,
+      ));
+    }
+    // Add extra glow for active turn
+    if (meta.isTurn) {
+      shadows.add(BoxShadow(
+        color: meta.playerColor.withOpacity(0.4),
+        blurRadius: 8,
+        spreadRadius: 1,
+      ));
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       width: 56,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: meta.isTeam ? Colors.purpleAccent : Colors.grey.shade800,
-          width: 2,
+          color: ringColor,
+          width: ringWidth,
         ),
-        boxShadow: meta.isTeam
-            ? [
-                BoxShadow(
-                  color: Colors.purpleAccent.withOpacity(0.5),
-                  blurRadius: 12,
-                )
-              ]
-            : [],
+        boxShadow: shadows,
         image: meta.avatarUrl != null
             ? DecorationImage(
-                image: meta.avatarUrl!.startsWith('http')
-                    ? NetworkImage(meta.avatarUrl!)
-                    : AssetImage(meta.avatarUrl!) as ImageProvider,
+                image: ImageUtils.getAvatarProvider(meta.avatarUrl!),
                 fit: BoxFit.cover,
               )
             : null,
@@ -141,14 +158,7 @@ class PlayersOverlay extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-          if (meta.isTeam)
-            Text(
-              'Team',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.greenAccent.shade200,
-              ),
-            ),
+          // Team text removed as per visual requirements (Glow handles it)
         ],
       ),
     );

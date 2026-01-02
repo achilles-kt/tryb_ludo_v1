@@ -35,4 +35,26 @@ class GameState {
       players: const {},
     );
   }
+
+  GameState copyWith({
+    bool? isRolling,
+    int? dice,
+    int? currentPlayer,
+    int? localPlayerIndex,
+    double? turnTimeLeft,
+    TurnPhase? turnPhase,
+    Map<String, dynamic>? players,
+    int? turnDeadlineTs,
+  }) {
+    return GameState(
+      isRolling: isRolling ?? this.isRolling,
+      dice: dice ?? this.dice,
+      currentPlayer: currentPlayer ?? this.currentPlayer,
+      localPlayerIndex: localPlayerIndex ?? this.localPlayerIndex,
+      turnTimeLeft: turnTimeLeft ?? this.turnTimeLeft,
+      turnPhase: turnPhase ?? this.turnPhase,
+      players: players ?? this.players,
+      turnDeadlineTs: turnDeadlineTs ?? this.turnDeadlineTs,
+    );
+  }
 }

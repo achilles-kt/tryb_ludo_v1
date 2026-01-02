@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../utils/image_utils.dart';
 import '../../theme/app_theme.dart';
-import '../glass_container.dart';
+import '../common/glass_container.dart';
 
 enum FriendStatus { online, offline, playing }
 
@@ -13,14 +14,14 @@ class FriendTile extends StatelessWidget {
   final VoidCallback onChat;
 
   const FriendTile({
-    Key? key,
+    super.key,
     required this.name,
     required this.avatarUrl,
     required this.status,
     required this.statusText,
     required this.onTap,
     required this.onChat,
-  }) : super(key: key);
+  });
 
   Color get _statusColor {
     switch (status) {
@@ -29,7 +30,6 @@ class FriendTile extends StatelessWidget {
       case FriendStatus.playing:
         return AppTheme.gold;
       case FriendStatus.offline:
-      default:
         return Colors.transparent;
     }
   }
@@ -59,9 +59,10 @@ class FriendTile extends StatelessWidget {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Image(
-                        image: avatarUrl.startsWith('http')
-                            ? NetworkImage(avatarUrl)
-                            : AssetImage(avatarUrl) as ImageProvider,
+                        image: avatarUrl.isEmpty
+                            ? const AssetImage('assets/avatars/avatar_0.png')
+                                as ImageProvider
+                            : ImageUtils.getAvatarProvider(avatarUrl),
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,

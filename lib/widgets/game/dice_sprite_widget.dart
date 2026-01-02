@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../game/state/game_controller.dart';
+import '../../controllers/game_controller.dart';
 import '../dice_widget.dart'; // For DiceTimerPainter
 
 class DiceSpriteWidget extends StatefulWidget {

@@ -133,6 +133,9 @@ export async function processSoloQueue() {
 // ---------------------------------------------
 // 3. Scheduler: Check Team Queue for Timeouts
 // ---------------------------------------------
+// ---------------------------------------------
+// 3. Scheduler: Check Team Queue for Timeouts
+// ---------------------------------------------
 export async function processTeamQueue() {
     console.log('🔍 DEBUG: processTeamQueue called');
 
@@ -144,9 +147,7 @@ export async function processTeamQueue() {
 
     if (!snap.exists()) return;
 
-    const updates: any = {};
     const timedOutTeams: any[] = [];
-
     snap.forEach((child) => {
         const val = child.val();
         if (val) {
@@ -156,39 +157,82 @@ export async function processTeamQueue() {
 
     if (timedOutTeams.length === 0) return;
 
-    // Remove teams from queue
-    for (const team of timedOutTeams) {
-        updates[`queue/4p_team/${team.key}`] = null;
-    }
-    await db.ref().update(updates);
-
-    // Pair with Bot Teams for Game Creation
+    // Process each team individually to avoid mass data loss on failure
     for (const team of timedOutTeams) {
         console.log(`🤖 TEAM_TIMEOUT: Pairing Team ${team.teamId} with Bot Team.`);
 
-        // Bot Team
-        const bot1 = `bot_1_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-        const bot2 = `bot_2_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        // 1. Deduct Fees FIRST (Robust)
+        const paidUsers: { uid: string, fee: number }[] = [];
+        let deductionFailed = false;
 
-        // Create Game via GameBuilder
-        // Team 1: Real Users
-        // Team 2: Bots
-        await GameBuilder.createActiveGame({
-            mode: 'team',
-            stake: team.p1Fee,
-            players: [
-                { uid: team.p1, seat: 0, team: 1 },
-                { uid: team.p2, seat: 2, team: 1 },
-                { uid: bot1, seat: 1, team: 2, name: "Bot 1" },
-                { uid: bot2, seat: 3, team: 2, name: "Bot 2" }
-            ]
-        });
+        const playersToCharge = [
+            { uid: team.p1, fee: team.p1Fee },
+            { uid: team.p2, fee: team.p2Fee }
+        ];
 
-        // Deduct Fees for Real Users
-        if (team.p1 !== "BOT_PLAYER") await applyWalletDelta(team.p1, -team.p1Fee, "stake_debit", { meta: { mode: "4p_team" } });
-        if (team.p2 !== "BOT_PLAYER") await applyWalletDelta(team.p2, -team.p2Fee, "stake_debit", { meta: { mode: "4p_team" } });
+        for (const p of playersToCharge) {
+            if (p.uid !== "BOT_PLAYER" && !p.uid.startsWith("bot_")) {
+                try {
+                    await applyWalletDelta(p.uid, -p.fee, "stake_debit", { meta: { mode: "4p_team" } });
+                    paidUsers.push(p);
+                } catch (e) {
+                    console.error(`Deduction failed for ${p.uid}`, e);
+                    deductionFailed = true;
+                }
+            }
+        }
 
-        console.log(`🔍 DEBUG: processTeamQueue pairs successfully | TeamID 1: ${team.teamId} | TeamID 2: BOT_TEAM`);
+        if (deductionFailed) {
+            // Refund any partial payments
+            console.warn(`Aborting pairing for Team ${team.teamId} due to deduction failure. Refunding partials.`);
+            for (const refundP of paidUsers) {
+                await applyWalletDelta(refundP.uid, +refundP.fee, "refund", { meta: { reason: "team_match_fail_deduction" } });
+            }
+            // Do NOT remove from queue? Or remove and let them try again?
+            // Better to leave them in queue so they can be picked up again?
+            // But if funds are missing, they will loop forever.
+            // Remove + Set status "insufficient_funds" is better.
+            await db.ref(`queue/4p_team/${team.key}`).remove();
+            // Notify P1/P2
+            // We assume P1 is the leader or just notify both.
+            // Just leaving them in queue for now (simplest), or remove?
+            // Let's remove to prevent infinite loop.
+            return;
+        }
+
+        // 2. Create Game with Bots
+        try {
+            const bot1 = `bot_1_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            const bot2 = `bot_2_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+            await GameBuilder.createActiveGame({
+                mode: 'team',
+                stake: team.p1Fee,
+                players: [
+                    { uid: team.p1, seat: 0, team: 1 },
+                    { uid: team.p2, seat: 2, team: 1 },
+                    { uid: bot1, seat: 1, team: 2, name: "Bot 1" },
+                    { uid: bot2, seat: 3, team: 2, name: "Bot 2" }
+                ]
+            });
+
+            // 3. Remove from Queue (Success)
+            await db.ref(`queue/4p_team/${team.key}`).remove();
+            console.log(`✅ TEAM_TIMEOUT: Successfully created bot match for Team ${team.teamId}`);
+
+        } catch (e) {
+            console.error(`CRITICAL: Failed to create game for Team ${team.teamId}`, e);
+
+            // Refund!
+            for (const refundP of paidUsers) {
+                await applyWalletDelta(refundP.uid, +refundP.fee, "refund", { meta: { reason: "team_match_fail_creation" } });
+            }
+            // Do NOT remove from queue (or remove to be safe?).
+            // If we don't remove, it will retry next minute.
+            // If the error is persistent (bug), it loops forever.
+            // But better than losing the user.
+            // Let's leave it in queue.
+        }
     }
 }
 

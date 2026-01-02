@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../game/ludo_game.dart';
 import '../../theme/app_theme.dart';
-import '../glass_container.dart';
+import '../common/glass_container.dart';
 import '../../app.dart';
 
 class EndGameOverlay extends StatelessWidget {

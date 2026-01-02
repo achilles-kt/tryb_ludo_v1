@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import 'glass_container.dart';
+import '../../theme/app_theme.dart';
+import '../common/glass_container.dart';
 
 class ChatInputBar extends StatefulWidget {
   final TextEditingController controller;
@@ -10,13 +10,13 @@ class ChatInputBar extends StatefulWidget {
   final bool isLoading;
 
   const ChatInputBar({
-    Key? key,
+    super.key,
     required this.controller,
     required this.onSend,
     this.onChanged,
     this.hintText = "Type a message...",
     this.isLoading = false,
-  }) : super(key: key);
+  });
 
   @override
   State<ChatInputBar> createState() => _ChatInputBarState();

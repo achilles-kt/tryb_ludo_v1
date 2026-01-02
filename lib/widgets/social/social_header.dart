@@ -4,7 +4,7 @@ import '../../theme/app_theme.dart';
 class SocialHeader extends StatelessWidget {
   final VoidCallback onAddFriend;
 
-  const SocialHeader({Key? key, required this.onAddFriend}) : super(key: key);
+  const SocialHeader({super.key, required this.onAddFriend});
 
   @override
   Widget build(BuildContext context) {

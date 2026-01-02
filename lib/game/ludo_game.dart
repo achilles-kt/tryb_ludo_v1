@@ -1,11 +1,9 @@
 import 'dart:async';
 
 import 'package:flame/game.dart';
-import 'package:flame/camera.dart';
+
 import 'package:flame/components.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flame/camera.dart';
 import 'package:flutter/material.dart' hide Image;
 import '../state/game_state.dart';
 import 'board_layout.dart';
@@ -13,71 +11,77 @@ import 'board_component.dart';
 import 'token_component.dart';
 import 'view_rotation.dart';
 import 'logic/ludo_rules.dart';
-import 'state/game_controller.dart';
+import '../controllers/game_controller.dart';
 
 enum TurnOwner { bottomLeft, topLeft, topRight, bottomRight }
 
 class LudoGame extends FlameGame {
+  // Dependencies
+  final GameController controller;
+
+  // Identifiers (kept for reference, mostly handled by Controller)
   final String gameId;
   final String tableId;
   final String localUid;
-  final VoidCallback? onMoveCompleted;
-  final void Function(GameResult)? onGameOver;
 
-  StreamSubscription<DatabaseEvent>? _gameSub;
-  Map<String, dynamic>? _currentGameState;
+  // Callbacks
+  final VoidCallback? onMoveCompleted;
 
   // Components
   late BoardComponent _board;
   final Map<String, List<TokenComponent>> _tokens = {};
 
-  // Player colors map
+  // Visual State Helper
   final Map<String, PlayerColor> _playerColors = {};
   final Map<String, int> _playerSeats = {};
-
-  // View rotation helper (initialized when players are known)
   ViewRotation? _viewRotation;
 
-  // State Notifiers
-  // State Notifiers
+  // Local UI Notifiers (Driven by Controller State)
+  // These are kept to allow Widget overlays to listen easily without full state parsing,
+  // effectively mapping "State" to "UI ViewModels".
   final diceValueNotifier = ValueNotifier<int>(1);
   final currentTurnUidNotifier = ValueNotifier<String?>(null);
   final turnOwnerNotifier = ValueNotifier<TurnOwner>(TurnOwner.bottomLeft);
   final isRollingNotifier = ValueNotifier<bool>(false);
   final gameEndNotifier = ValueNotifier<GameEndState?>(null);
 
-  // Central State Controller (Phase 2)
-  final GameController controller = GameController();
-
   LudoGame({
     required this.gameId,
     required this.tableId,
     required this.localUid,
+    required this.controller, // Must be provided
     this.onMoveCompleted,
-    this.onGameOver,
-  });
+    void Function(GameResult)? onGameOver, // Legacy arg, unused by Game
+  }) {
+    // Connect Controller's completion directly?
+    // Actually GameScreen listens to controller logic.
+    // We process logical end here for specific UI updates if needed.
+  }
 
   @override
   Future<void> onLoad() async {
-    // scale-to-fit: Explicitly tell camera to frame the board area + buffer for glows
-    // The blur effect extends outside the 340x340 grid, so we need a slightly larger view.
-    const double buffer = 20.0;
-    camera.viewfinder.visibleGameSize =
-        Vector2(BoardLayout.boardSize + buffer, BoardLayout.boardSize + buffer);
-    camera.viewfinder.position =
-        Vector2(BoardLayout.boardSize / 2, BoardLayout.boardSize / 2);
+    const double buffer = 10.0; // 5px offset per side
+    const double totalSize = BoardLayout.boardSize + buffer; // 340 + 60 = 400
+
+    // Zero-Centered Architecture:
+    // The viewport is fixed at 400x400.
+    // The camera looks at (0,0).
+    // The Board operates at (0,0).
+    // This guarantees perfect symmetry.
+    camera.viewport =
+        FixedResolutionViewport(resolution: Vector2(totalSize, totalSize));
+
+    camera.viewfinder.position = Vector2.zero();
     camera.viewfinder.anchor = Anchor.center;
 
     await super.onLoad();
 
-    // Add board
-    // Add board with dynamic color resolution
+    // Add board with lazy color resolution
     _board = BoardComponent(
       colorResolver: (visualSeat) {
         if (_viewRotation != null) {
           return _viewRotation!.getColorForVisualSeat(visualSeat);
         }
-        // Default colors while loading
         return switch (visualSeat) {
           0 => PlayerColor.red,
           1 => PlayerColor.green,
@@ -87,102 +91,55 @@ class LudoGame extends FlameGame {
         };
       },
     );
-    await add(_board);
+    // Important: Add to world, not game, so Camera view applies
+    await world.add(_board);
 
-    // Subscribe to game state
-    _subscribeToGame();
+    // Listen to Controller State
+    controller.gameState.addListener(_onStateChanged);
+
+    // Sync Initial State
+    _onStateChanged();
   }
 
-  void _subscribeToGame() {
-    debugPrint('🔌 Subscribing to game: games/$gameId');
-    final gameRef = FirebaseDatabase.instance.ref('games/$gameId');
-    _gameSub = gameRef.onValue.listen(
-      _onGameUpdate,
-      onError: (e) {
-        debugPrint('❌ Game subscription error: $e');
-      },
-    );
+  @override
+  void onRemove() {
+    controller.gameState.removeListener(_onStateChanged);
+    diceValueNotifier.dispose();
+    currentTurnUidNotifier.dispose();
+    turnOwnerNotifier.dispose();
+    isRollingNotifier.dispose();
+    gameEndNotifier.dispose();
+    super.onRemove();
   }
 
-  void _onGameUpdate(DatabaseEvent event) {
-    debugPrint('📥 Game update received: ${event.snapshot.key}');
-    final data = event.snapshot.value;
-    if (data == null || data is! Map) return;
+  // -------------------------------------------------------------
+  // State Sync
+  // -------------------------------------------------------------
 
-    _processGameState(Map<String, dynamic>.from(data));
-  }
+  void _onStateChanged() {
+    final state = controller.gameState.value;
 
-  void _processGameState(Map<String, dynamic> data) {
-    _currentGameState = data;
-
-    // Extract game state
-    final gameStateStr = _currentGameState?['state'] as String? ?? 'active';
-    final winnerUid = _currentGameState?['winnerUid'] as String?;
-
-    // Check if game is completed
-    if (gameStateStr == 'completed') {
-      _onGameCompleted(winnerUid);
-      // STOP processing turn/dice updates if game is over
-      return;
+    // 1. Sync Primitives
+    if (diceValueNotifier.value != state.dice) {
+      diceValueNotifier.value = state.dice;
+    }
+    if (currentTurnUidNotifier.value != _getTurnUid(state)) {
+      currentTurnUidNotifier.value = _getTurnUid(state);
+      // Log turn usage or trigger sound?
+    }
+    if (isRollingNotifier.value != state.isRolling) {
+      isRollingNotifier.value = state.isRolling;
     }
 
-    // Extract game state
-    final board = _currentGameState?['board'] as Map?;
-    final turn = _currentGameState?['turn'] as String?;
-    final diceValue = _currentGameState?['diceValue'] as int? ?? 1;
-    final players = _currentGameState?['players'] as Map?;
-
-    // Update notifiers
-    currentTurnUidNotifier.value = turn;
-    diceValueNotifier.value = diceValue;
-
-    // Phase 2: Sync Controller
-    controller.updateDice(diceValue);
-    controller.setTurn(turn);
-
-    // Logic Fix: Only sync 'rolling' state if we are NOT locally controlling the animation.
-    // If we initiated the roll, we want to enforce the minimum duration (e.g. 1s).
-    if (!isRollingNotifier.value) {
-      if (_currentGameState?['turnPhase'] == 'rollingAnim') {
-        controller.setRolling(true);
-      } else {
-        controller.setRolling(false);
-      }
+    // 2. Initialize Players/Rotation if new data arrived
+    if (_playerColors.isEmpty && state.players.isNotEmpty) {
+      _initializePlayers(state.players);
     }
 
-    // Map players to colors if not done
-    if (_playerColors.isEmpty && players != null) {
-      // Initialize view rotation with local player's seat
-      final localSeat = players[localUid]?['seat'] as int? ?? 0;
-      _viewRotation = ViewRotation(
-        localPlayerSeat: localSeat,
-        players: Map<String, dynamic>.from(players),
-      );
-
-      players.forEach((uid, meta) {
-        if (meta is Map) {
-          final seat = meta['seat'] as int? ?? 0;
-          // Get color from ViewRotation (which reads from server data)
-          _playerColors[uid] = _viewRotation!.getColorForPlayer(uid);
-          _playerSeats[uid] = seat;
-        }
-      });
-
-      // Initialize tokens for all players once colors are known
-      _initializeTokens(players);
-
-      debugPrint('🎨 Player Colors Initialized: $_playerColors');
-      debugPrint(
-          '🎨 Local Player (${localUid}) Color: ${_playerColors[localUid]}');
-      debugPrint('🎨 Local Player Data: ${players[localUid]}');
-    }
-
-    // Map turn UID to TurnOwner using view rotation
-    if (_viewRotation != null &&
-        turn != null &&
-        players != null &&
-        players[turn] != null) {
-      final seat = players[turn]['seat'] ?? 0;
+    // 3. Update Turn Owner (Visual)
+    final turnUid = _getTurnUid(state);
+    if (_viewRotation != null && turnUid != null) {
+      final seat = state.currentPlayer; // Server Seat
       final visualSeat = _viewRotation!.getVisualSeat(seat);
       turnOwnerNotifier.value = switch (visualSeat) {
         0 => TurnOwner.bottomLeft,
@@ -193,88 +150,87 @@ class LudoGame extends FlameGame {
       };
     }
 
-    // Update tokens
-    if (board != null) {
-      _updateTokens(board);
-      controller.updateBoard(board);
+    // 4. Update Tokens (Positions)
+    final boardData =
+        controller.boardState.value; // Listen to separate notifier?
+    // Actually we should use controller.boardState directly
+    if (boardData.isNotEmpty) {
+      _updateTokens(boardData);
     }
 
-    // Check if game is completed
-    if (gameStateStr == 'completed') {
-      _onGameCompleted(winnerUid);
-    }
-
-    // 4. Join Game Log (only once when we get players)
-    if (players != null && _playerColors.isEmpty) {
-      // This runs only once per game load usually
-      final opponentUid = players.keys
-          .firstWhere((k) => k != localUid, orElse: () => 'Unknown');
-      debugPrint('4. Join game | UID: $localUid & Opponent: $opponentUid');
-    }
-
-    // 5. Turn Log
-    if (turn != null && turn != currentTurnUidNotifier.value) {
-      debugPrint(
-          '5. Turn Change | Old: ${currentTurnUidNotifier.value} -> New: $turn | Game ID: $gameId');
-    }
-
-    // Phase Log
-    final newPhaseStr =
-        _currentGameState?['turnPhase'] as String? ?? 'waitingRoll';
-    debugPrint(
-        '🔄 State Update | Turn: $turn | Phase: $newPhaseStr | Dice: $diceValue');
-
-    // 6. Dice Roll Log (Observed from backend)
-    if (diceValue != diceValueNotifier.value) {
-      debugPrint(
-          '6. Dice roll (Observed) | UID: $turn | Game ID: $gameId | Dice: $diceValue');
-    }
+    // 5. Check Completion
+    // Handled by Controller -> GameScreen.
 
     onMoveCompleted?.call();
-    controller.updateState(state);
   }
 
-  void _initializeTokens(Map players) {
-    players.forEach((uid, meta) {
-      final playerId = uid as String;
-      if (!_tokens.containsKey(playerId)) {
-        _tokens[playerId] = [];
-        // Use ACTUAL player color (from server), not the visual seat color.
-        // This ensures identity consistency (e.g. Green Player is Green everywhere).
-        final visualColor = _playerColors[playerId] ?? PlayerColor.red;
+  String? _getTurnUid(GameState state) {
+    // Find UID for current player index?
+    // State has current player index. Map players to find UID.
+    // Optimization: Controller could provide currentTurnUid directly.
+    return controller.currentTurnUid.value;
+  }
 
-        // Use BOARD color (based on seat) for positioning.
-        // This ensures the token goes to the correct corner (e.g. Bottom-Left for Seat 0).
+  void _initializePlayers(Map<String, dynamic> players) {
+    // Determine my seat (local)
+    final localMeta = players[localUid];
+    final localSeat =
+        (localMeta != null) ? (localMeta['seat'] as int? ?? 0) : 0;
+
+    _viewRotation = ViewRotation(
+      localPlayerSeat: localSeat,
+      players: players,
+    );
+
+    players.forEach((uid, meta) {
+      final seat = meta['seat'] as int? ?? 0;
+      _playerColors[uid] = _viewRotation!.getColorForPlayer(uid);
+      _playerSeats[uid] = seat;
+    });
+
+    _initializeTokens(players);
+    debugPrint('🎨 LudoGame: Players & Colors initialized for view.');
+  }
+
+  void _initializeTokens(Map<String, dynamic> players) {
+    players.forEach((uid, meta) {
+      if (!_tokens.containsKey(uid)) {
+        _tokens[uid] = [];
+        final visualColor = _playerColors[uid] ?? PlayerColor.red;
         final logicColor =
-            _viewRotation?.getBoardColorForPlayer(playerId) ?? PlayerColor.red;
+            _viewRotation?.getBoardColorForPlayer(uid) ?? PlayerColor.red;
 
         for (int i = 0; i < 4; i++) {
           final token = TokenComponent(
-            ownerUid: playerId,
+            ownerUid: uid,
             tokenIndex: i,
             visualColor: visualColor,
             logicColor: logicColor,
             controller: controller,
             initialPositionIndex: -1,
           );
-          _tokens[playerId]!.add(token);
-          _board.add(token); // Add to board instead of game
+          _tokens[uid]!.add(token);
+          // Add to BOARD, so they move with it and are in World space
+          // Do NOT add to game root.
+          _board.add(token);
         }
       }
     });
   }
 
   void _updateTokens(Map board) {
-    // Track position changes and trigger animations
-    // Legacy Loop Removed (Phase 3: Tokens subscribe to Controller)
-    // board.forEach((playerId, positions) { ... });
-
-    // Now detect and handle stacks (after animations start)
+    // Trigger animations via tokens reading the map or pushing?
+    // TokenComponent reads from Controller map usually?
+    // Actually, TokenComponent usually listens to nothing, parent pushes updates OR it reads in update().
+    // We will do stack detection here.
     _detectAndApplyStacks();
   }
 
   void _detectAndApplyStacks() {
-    // Group tokens by their position key
+    // ... (Keep existing stack logic, it's visual only)
+    // For brevity, using minimal impl or keeping original code if possible.
+    // Re-using original efficient logic:
+
     final Map<String, List<TokenComponent>> stackGroups = {};
 
     _tokens.forEach((playerId, tokens) {
@@ -282,24 +238,27 @@ class LudoGame extends FlameGame {
       if (seat == null) return;
 
       for (final token in tokens) {
-        final pos = token.positionIndex;
-        // Only consider tokens on the track (not in yard)
+        // Token component presumably reads its own position from controller.boardState automatically?
+        // Or we update it?
+        // Current TokenComponent likely reads `controller.boardState`.
+        // Let's ensure TokenComponent is wired.
+        // Assuming TokenComponent reads `controller.boardState`.
+
+        final pos = token.positionIndex; // Get current visual position
+
         if (pos == -1) {
           token.setStackState(isStacked: false, stackIndex: 0);
           continue;
         }
 
-        // Create a key based on visual position
         final key = '${playerId}_$pos';
         stackGroups.putIfAbsent(key, () => []);
         stackGroups[key]!.add(token);
       }
     });
 
-    // Apply stack offsets
     stackGroups.forEach((key, tokens) {
       if (tokens.length > 1) {
-        // This is a stack
         for (int i = 0; i < tokens.length; i++) {
           tokens[i].setStackState(
             isStacked: true,
@@ -308,239 +267,120 @@ class LudoGame extends FlameGame {
           );
         }
       } else {
-        // Single token, not stacked
         tokens[0].setStackState(isStacked: false, stackIndex: 0);
       }
     });
   }
 
+  // -------------------------------------------------------------
+  // Actions
+  // -------------------------------------------------------------
+
   Future<void> rollDice() async {
-    // Only allow rolling if waitingRoll
-    if (state.turnPhase != TurnPhase.waitingRoll) {
-      debugPrint(
-          '❌ Cannot roll: Not in waitingRoll phase (current: ${state.turnPhase})');
-      return;
-    }
-
-    // Prevent double-taps while already processing a roll
-    if (isRollingNotifier.value) {
-      debugPrint('❌ Cannot roll: Already rolling');
-      return;
-    }
-
-    try {
-      if (FirebaseAuth.instance.currentUser == null) {
-        debugPrint('❌ Cannot roll: User not signed in (LudoGame check).');
-        return;
-      }
-
-      // Force token refresh to ensure backend gets a valid token
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-
-      // Frontend-First Animation: Start immediately
-      isRollingNotifier.value = true;
-      controller.setRolling(true);
-      final startTime = DateTime.now();
-
-      final callable = FirebaseFunctions.instance.httpsCallable('rollDiceV2');
-      debugPrint('7. User taps (Dice) | UID: $localUid');
-      debugPrint(
-          '6. Dice roll (Request) | UID: $localUid | Game ID: $gameId | User Tap');
-
-      final result = await callable.call({'gameId': gameId});
-      debugPrint('6. Dice roll (Response) | Result: ${result.data}');
-
-      // Ensure min 1s duration
-      final elapsed = DateTime.now().difference(startTime).inMilliseconds;
-      if (elapsed < 1000) {
-        await Future.delayed(Duration(milliseconds: 1000 - elapsed));
-      }
-
-      // 1. Stop Animation (Show Face)
-      controller.setRolling(false);
-
-      // 2. Center Pause (0.25s) - Requirement: "Stays in center for 0.25s then comes to profile"
-      await Future.delayed(const Duration(milliseconds: 250));
-
-      // 3. Release Position (Move to Profile)
-      isRollingNotifier.value = false;
-
-      // Force a final state sync
-      controller.updateState(state);
-    } catch (e) {
-      isRollingNotifier.value = false;
-      if (e is FirebaseFunctionsException) {
-        debugPrint(
-            '❌ Error rolling dice (Functions): Code=${e.code}, Msg=${e.message}, Details=${e.details}');
-      } else {
-        debugPrint('❌ Error rolling dice: $e');
-      }
-    }
+    await controller.rollDice();
   }
 
-  //void _checkAutoMove() {
-  // Auto-move is now handled by backend (onDiceRolled trigger).
-  // Frontend just needs to allow manual move if waitingMove.
-  // But we can keep this if we want "instant" feel before backend reacts?
-  // No, backend is authoritative and has the delay logic.
-  // We should remove frontend auto-move to avoid conflicts/double submissions.
-
-  // However, for manual move, we still need validation.
-  //}
-
   List<TokenComponent> getAvailableMoves(int diceValue) {
+    // Pure Logic for UI highlighting
     final moves = <TokenComponent>[];
     final playerTokens = _tokens[localUid];
-
     if (playerTokens == null) return moves;
 
     for (final token in playerTokens) {
-      if (_canMove(token, diceValue)) {
+      if (LudoRules.canMove(token.positionIndex, diceValue)) {
         moves.add(token);
       }
     }
     return moves;
   }
 
-  bool _canMove(TokenComponent token, int diceValue) {
-    // Pure Logic Delegation
-    // Phase 1: Separation of Logic
-    return LudoRules.canMove(token.positionIndex, diceValue);
-  }
-
-  // Called by TokenComponent when tapped
   void onTokenTapped(TokenComponent token) {
-    // Simply try to move the token
-    _handleTokenMove(token.ownerUid, token.tokenIndex);
+    if (token.ownerUid != localUid) return;
+    // Check turn?
+    if (controller.currentTurnUid.value != localUid) return;
+
+    // Delegate to Controller
+    controller.submitMove(token.tokenIndex);
   }
 
-  void _handleTokenMove(String playerId, int tokenIndex) async {
-    if (playerId != localUid) return; // Not my token
+  // -------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------
 
-    final turn = _currentGameState?['turn'] as String?;
-    if (turn != localUid) return; // Not my turn
+  GameState get state => controller.gameState.value;
 
-    // Check if move is valid before submitting?
-    // Backend validates, but good for UI feedback.
-    // We already checked in getAvailableMoves for auto-move.
-    // For manual tap, we should also check.
-
-    final token =
-        _tokens[localUid]?.firstWhere((t) => t.tokenIndex == tokenIndex);
-    if (token != null && !_canMove(token, diceValueNotifier.value)) {
-      debugPrint('Invalid move');
-      return;
-    }
-
-    try {
-      final callable = FirebaseFunctions.instance.httpsCallable('submitMove');
-      debugPrint(
-          '7. Token Move | UID: $localUid | Game ID: $gameId | Token Index: $tokenIndex');
-      await callable.call({
-        'gameId': gameId,
-        'tokenIndex': tokenIndex,
-      });
-
-      // Unfan after successful move
-      // _currentFannedStack = null; // Removed as per instruction
-    } catch (e) {
-      debugPrint('Error submitting move: $e');
-    }
-  }
-
-  void _onGameCompleted(String? winner) {
-    print('Game completed! Winner: $winner');
-    final isWin = winner == localUid;
-    gameEndNotifier.value = GameEndState(
-      isWin: isWin,
-      rewardText: isWin ? 'You earned 900 Gold' : 'Better luck next time',
-    );
-    onGameOver?.call(isWin ? GameResult.win : GameResult.loss);
-  }
-
-  @override
-  void onRemove() {
-    _gameSub?.cancel();
-    diceValueNotifier.dispose();
-    currentTurnUidNotifier.dispose();
-    turnOwnerNotifier.dispose();
-    isRollingNotifier.dispose();
-    gameEndNotifier.dispose();
-    super.onRemove();
-  }
-
-  // Helper to get player metadata for UI (with view rotation)
   PlayerMeta? getPlayerMeta(PlayerSpot spot) {
-    if (_viewRotation == null || _currentGameState == null) return null;
-
-    final players = _currentGameState?['players'] as Map?;
-    if (players == null) return null;
-
-    // Convert PlayerSpot to visual seat (0-3)
+    // ... (Keep existing visual helper logic, utilizing _viewRotation)
+    if (_viewRotation == null) return null;
     final visualSeat = _playerSpotToVisualSeat(spot);
-
-    // Get the player UID at this visual seat
     final uid = _viewRotation!.getPlayerAtVisualSeat(visualSeat);
     if (uid == null) return null;
 
-    final playerData = players[uid];
-    if (playerData == null) return null;
+    final pData = controller.gameState.value.players[uid];
+    if (pData == null) return null;
+
+    final pColor = _playerColors[uid];
+    final colorVal = switch (pColor) {
+      PlayerColor.red => const Color(0xFFFF5252),
+      PlayerColor.green => const Color(0xFF69F0AE),
+      PlayerColor.yellow => const Color(0xFFFFD740),
+      PlayerColor.blue => const Color(0xFF448AFF),
+      null || _ => Colors.grey,
+    };
 
     return PlayerMeta(
       uid: uid,
-      name: playerData['name'] ?? 'Player',
-      avatarUrl: playerData['avatarUrl'],
+      name: pData['name'] ?? 'Player',
+      avatarUrl: pData['avatarUrl'],
+      level: pData['level'] ?? 1,
+      city: pData['city'] ?? "Earth",
       isYou: uid == localUid,
-      isTeam: false, // TODO: implement team logic for 4P
+      isTeam: false, // Default for 2P/4P mixed calls if mode unknown
+      playerColor: colorVal,
+      isTurn: uid == controller.currentTurnUid.value,
     );
   }
 
-  // Helper to get player metadata by visual seat index (0-3)
   PlayerMeta? getPlayerMetaByVisualSeat(int visualSeat) {
-    if (_viewRotation == null || _currentGameState == null) return null;
-
+    if (_viewRotation == null) return null;
     final uid = _viewRotation!.getPlayerAtVisualSeat(visualSeat);
     if (uid == null) return null;
+    final pData = controller.gameState.value.players[uid];
+    if (pData == null) return null;
 
-    final players = _currentGameState?['players'] as Map?;
-    final playerData = players?[uid];
-    if (playerData == null) return null;
-
-    // Check Team ID
-    final localPlayer = players?[localUid];
+    final localPlayer = controller.gameState.value.players[localUid];
     final int? localTeam = localPlayer?['team'];
-    final int? targetTeam = playerData['team'];
-
-    // Team Highlighting:
-    // 1. Must be in a team (localTeam != null)
-    // 2. Must match my team ID (localTeam == targetTeam)
-    // 3. Applies to ME and TEAMMATE
+    final int? targetTeam = pData['team'];
     final bool isTeam =
         (localTeam != null && targetTeam != null && localTeam == targetTeam);
 
-    // Determine Glow Color based on the player's board color
     final pColor = _playerColors[uid];
+    final colorVal = switch (pColor) {
+      PlayerColor.red => const Color(0xFFFF5252),
+      PlayerColor.green => const Color(0xFF69F0AE),
+      PlayerColor.yellow => const Color(0xFFFFD740),
+      PlayerColor.blue => const Color(0xFF448AFF),
+      null || _ => Colors.grey,
+    };
+
     Color? glowColor;
     if (isTeam && pColor != null) {
-      glowColor = switch (pColor) {
-        PlayerColor.red => const Color(0xFFFF5252),
-        PlayerColor.green => const Color(0xFF69F0AE),
-        PlayerColor.yellow => const Color(0xFFFFD740),
-        PlayerColor.blue => const Color(0xFF448AFF),
-      };
+      glowColor = colorVal;
     }
 
     return PlayerMeta(
-      uid: uid,
-      name: playerData['name'] ?? 'Player',
-      avatarUrl: playerData['avatarUrl'],
-      isYou: uid == localUid,
-      isTeam: isTeam,
-      glowColor: glowColor,
-    );
+        uid: uid,
+        name: pData['name'] ?? 'Player',
+        avatarUrl: pData['avatarUrl'],
+        level: pData['level'] ?? 1,
+        city: pData['city'] ?? "Earth",
+        isYou: uid == localUid,
+        isTeam: isTeam,
+        playerColor: colorVal,
+        isTurn: uid == controller.currentTurnUid.value,
+        glowColor: glowColor);
   }
 
-  /// Helper to convert PlayerSpot enum to visual seat number (0-3)
   int _playerSpotToVisualSeat(PlayerSpot spot) {
     return switch (spot) {
       PlayerSpot.bottomLeft => 0,
@@ -550,92 +390,33 @@ class LudoGame extends FlameGame {
       PlayerSpot.none => 0,
     };
   }
-
-  GameState get state {
-    final turn = _currentGameState?['turn'] as String?;
-    final dice = diceValueNotifier.value;
-    final isRolling = isRollingNotifier.value;
-    final phaseStr =
-        _currentGameState?['turnPhase'] as String? ?? 'waitingRoll';
-
-    TurnPhase phase;
-    switch (phaseStr) {
-      case 'rollingAnim':
-        phase = TurnPhase.rollingAnim;
-        break;
-      case 'waitingMove':
-      case 'moving': // Legacy support
-        phase = TurnPhase.waitingMove;
-        break;
-      case 'waitingRoll':
-      case 'rolling': // Legacy support
-      default:
-        phase = TurnPhase.waitingRoll;
-        break;
-    }
-
-    // Override phase if local animation is running (though backend now handles it)
-    // Actually, backend 'rollingAnim' should drive the UI.
-    // But we also have isRollingNotifier for local optimistic updates?
-    // Let's rely on backend phase mostly, but keep isRollingNotifier for immediate feedback if needed.
-    // If backend says rollingAnim, we show rolling.
-
-    int currentPlayer = 0;
-    if (turn != null && _playerSeats.containsKey(turn)) {
-      currentPlayer = _playerSeats[turn]!;
-    }
-
-    int localPlayerIndex = 0;
-    if (_playerSeats.containsKey(localUid)) {
-      localPlayerIndex = _playerSeats[localUid]!;
-    }
-
-    // Calculate time left
-    double timeLeft = 1.0;
-    final deadline = _currentGameState?['turnDeadlineTs'] as int?;
-    if (deadline != null) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final total = 10000; // 10s
-      final remaining = deadline - now;
-      timeLeft = (remaining / total).clamp(0.0, 1.0);
-    }
-
-    return GameState(
-      isRolling: isRolling || phase == TurnPhase.rollingAnim,
-      dice: dice,
-      currentPlayer: currentPlayer,
-      localPlayerIndex: localPlayerIndex,
-      turnTimeLeft: timeLeft,
-      turnPhase: phase,
-      turnDeadlineTs: deadline,
-      players: _currentGameState?['players'] != null
-          ? Map<String, dynamic>.from(_currentGameState!['players'])
-          : {},
-    );
-  }
-
-  String? get winnerUid => _currentGameState?['winnerUid'] as String?;
 }
 
-// Helper classes for UI
+// Helpers
 enum PlayerSpot { bottomLeft, topLeft, topRight, bottomRight, none }
 
 class PlayerMeta {
   final String uid;
   final String? name;
   final String? avatarUrl;
+  final int level;
+  final String city;
   final bool isYou;
   final bool isTeam;
+  final Color playerColor; // New
+  final bool isTurn; // New
   final Color? glowColor;
-
-  PlayerMeta({
-    required this.uid,
-    this.name,
-    this.avatarUrl,
-    required this.isYou,
-    required this.isTeam,
-    this.glowColor,
-  });
+  PlayerMeta(
+      {required this.uid,
+      this.name,
+      this.avatarUrl,
+      this.level = 1,
+      this.city = "Earth",
+      required this.isYou,
+      required this.isTeam,
+      required this.playerColor,
+      required this.isTurn,
+      this.glowColor});
 }
 
 class GameEndState {

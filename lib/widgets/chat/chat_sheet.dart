@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/chat_service.dart';
-import '../models/activity_item.dart';
-import '../widgets/activity_item_renderer.dart';
-import '../widgets/chat_input_bar.dart';
+import '../../services/chat_service.dart';
+import '../../models/activity_item.dart';
+import '../../widgets/activity_item_renderer.dart';
+import 'chat_input_bar.dart';
 
 class ChatSheet extends StatefulWidget {
   final String? gameId; // If null, assume Global Chat
@@ -13,12 +13,12 @@ class ChatSheet extends StatefulWidget {
   final Map<String, dynamic>? players;
 
   const ChatSheet({
-    Key? key,
+    super.key,
     this.gameId,
     this.initialIsTeamChat = false,
     this.showTeamToggle = true,
     this.players,
-  }) : super(key: key);
+  });
 
   @override
   State<ChatSheet> createState() => _ChatSheetState();
@@ -63,25 +63,9 @@ class _ChatSheetState extends State<ChatSheet> {
       // Phase 14: Unified Stream Logic
       if (widget.players == null) return;
 
-      List<String> targetUids = [];
-      final myUid = _uid;
-      final myData = widget.players![myUid];
+      final convId = _currentConvId;
 
-      // Determine Participants
-      widget.players!.forEach((uid, data) {
-        if (_isTeamChat) {
-          // Filter for Team
-          if (myData != null && data['team'] == myData['team']) {
-            targetUids.add(uid);
-          }
-        } else {
-          // All Players
-          targetUids.add(uid);
-        }
-      });
-
-      if (targetUids.isNotEmpty) {
-        final convId = _chatService.getCanonicalId(targetUids);
+      if (convId != null) {
         debugPrint("Sending ${_isTeamChat ? 'Team' : 'All'} msg to $convId");
 
         _chatService.sendMessageToConversation(
@@ -106,27 +90,33 @@ class _ChatSheetState extends State<ChatSheet> {
 
   // Helper to get current active conversation ID
   String? get _currentConvId {
-    if (widget.gameId == null)
+    if (widget.gameId == null) {
       return null; // Global Chat doesn't support typing yet (or hardcode global_chat)
+    }
 
     if (widget.players == null) return null;
 
-    List<String> targetUids = [];
-    final myUid = _uid;
-    final myData = widget.players![myUid];
+    final ids =
+        _chatService.getGameConversationIds(widget.gameId!, widget.players!);
 
-    widget.players!.forEach((uid, data) {
-      if (_isTeamChat) {
-        if (myData != null && data['team'] == myData['team']) {
-          targetUids.add(uid);
-        }
-      } else {
-        targetUids.add(uid);
+    if (_isTeamChat) {
+      // Team Chat is the second ID if it exists (and is distinct)
+      // getGameConversationIds returns [Group, Team] or [Group]
+      if (ids.length > 1) {
+        return ids[1];
       }
-    });
+      // If we are in "Team" mode but no team chat exists (e.g. 2p game),
+      // typically we shouldn't be here (toggle hidden).
+      // Fallback to Group? Or Null?
+      return null;
+    } else {
+      // Group Chat is always first
+      if (ids.isNotEmpty) {
+        return ids[0];
+      }
+    }
 
-    if (targetUids.isEmpty) return null;
-    return _chatService.getCanonicalId(targetUids);
+    return null;
   }
 
   void _onTextChanged(String value) {
@@ -296,12 +286,13 @@ class _ChatSheetState extends State<ChatSheet> {
   Widget _toggleBtn(String label, bool isActive) {
     return GestureDetector(
       onTap: () {
-        if (!isActive)
+        if (!isActive) {
           setState(() {
             _isTeamChat = !_isTeamChat;
             _controller.clear();
             _updateStream();
           });
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),

@@ -1,61 +1,40 @@
 import 'package:flutter/material.dart';
-import '../../game/ludo_game.dart';
+import '../currency/gold_balance_widget.dart';
 
 class GameTopBar extends StatelessWidget {
-  final LudoGame game;
-  const GameTopBar({super.key, required this.game});
+  const GameTopBar({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withOpacity(0.8),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      child: Row(
-        children: [
-          // Back button
-          IconButton(
-            icon:
-                const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.03),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withOpacity(0.08))),
+          child: Row(
+            children: [
+              // Back Button
+              GestureDetector(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  child: const Icon(Icons.arrow_back_ios_new,
+                      size: 18, color: Colors.white70)),
+              const SizedBox(width: 16),
 
-          const Spacer(),
-
-          // Currency display (mock for now)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white10),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.monetization_on,
-                    color: Colors.amber, size: 16),
-                const SizedBox(width: 4),
-                const Text(
-                  '2.5k',
+              // Title or Game ID
+              const Text("Game Room",
                   style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+
+              const Spacer(),
+              const GoldBalanceWidget(),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -112,9 +112,35 @@ class NotificationService {
       }
     }
 
-    // 2. Chat / Social Fallback
-    if (type == 'chat' || type == 'game_invite' || type == 'game_chat') {
-      final senderId = data['senderId'];
+    // 2. Contact Joined
+    if (type == 'contact_joined') {
+      final peerId = data['peerId'];
+      if (peerId != null) {
+        debugPrint("🔔 Contact Joined: $peerId. Opening Conversation.");
+        // We could open ProfileScreen(peerId) or ConversationScreen.
+        // Conversation is more engaging "Say Hi".
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => ConversationScreen(
+              peerId: peerId,
+              peerName:
+                  'New Friend', // We might not have name here yet, ConversationScreen usually fetches it or we pass it?
+              // Better to pass what we have or let screen fetch.
+              // Notification payload might not have name.
+              peerAvatar: '',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    // 3. Chat / Social Fallback
+    if (type == 'chat' ||
+        type == 'game_invite' ||
+        type == 'game_chat' ||
+        type == 'friend_request') {
+      final senderId = data['senderId'] ?? data['peerId']; // unifying
       final senderName = data['senderName'];
 
       if (senderId != null) {

@@ -85,6 +85,51 @@ class ActivityService {
     }
   }
 
+  // Helper: Get relevant conversation IDs for a Game (Group + Team)
+  List<String> getGameConversationIds(
+      String gameId, Map<String, dynamic> players) {
+    // 1. All Players -> Group Chat
+    // Filter out bots (uid starting with 'bot' or 'BOT')
+    final allUids = players.keys
+        .where((uid) =>
+            !uid.toLowerCase().startsWith('bot') &&
+            !uid.toLowerCase().startsWith('computer'))
+        .toList();
+
+    final gpId = getCanonicalId(allUids);
+
+    final ids = <String>[];
+    if (gpId != 'error_empty' && allUids.length > 1) {
+      ids.add(gpId);
+    }
+
+    // 2. My Team -> Team Chat
+    final myUid = _auth.currentUser?.uid;
+    if (myUid != null && players.containsKey(myUid)) {
+      final myTeam = players[myUid]['team'];
+      // Only generic 'team' checking if team is not null (so works for team modes)
+      if (myTeam != null) {
+        final teamUids = players.entries
+            .where((e) =>
+                e.value['team'] == myTeam &&
+                !e.key.toLowerCase().startsWith('bot'))
+            .map((e) => e.key)
+            .toList();
+
+        // Valid team chat if > 1 person (myself + teammate)
+        if (teamUids.length > 1) {
+          final teamId = getCanonicalId(teamUids);
+          // Only add if distinct from group (e.g. 2p game group == team, don't duplicate)
+          if (teamId != gpId && teamId != 'error_empty') {
+            ids.add(teamId);
+          }
+        }
+      }
+    }
+
+    return ids;
+  }
+
   // Public wrapper for UI initialization
   Future<String> ensureConversation(List<String> uids) async {
     final convId = getCanonicalId(uids);
@@ -139,7 +184,7 @@ class ActivityService {
       data.forEach((key, value) {
         if (value is Map) {
           try {
-            final msgMap = Map<String, dynamic>.from(value as Map);
+            final msgMap = Map<String, dynamic>.from(value);
             // Normalize ts/timestamp
             if (msgMap['timestamp'] == null && msgMap['ts'] != null) {
               msgMap['timestamp'] = msgMap['ts'];
@@ -192,7 +237,9 @@ class ActivityService {
     };
 
     controller.onCancel = () {
-      for (var s in subs) s.cancel();
+      for (var s in subs) {
+        s.cancel();
+      }
     };
 
     return controller.stream;
@@ -264,7 +311,7 @@ class ActivityService {
       data.forEach((key, value) {
         if (value is Map) {
           try {
-            final msgMap = Map<String, dynamic>.from(value as Map);
+            final msgMap = Map<String, dynamic>.from(value);
             if (msgMap['id'] == null) msgMap['id'] = key;
             messages.add(ActivityItem.fromMap(msgMap));
           } catch (e) {
@@ -333,7 +380,7 @@ class ActivityService {
       data.forEach((key, value) {
         if (value is Map) {
           try {
-            final msgMap = Map<String, dynamic>.from(value as Map);
+            final msgMap = Map<String, dynamic>.from(value);
             // Map backend 'ts' to 'timestamp' if needed
             if (msgMap['timestamp'] == null && msgMap['ts'] != null) {
               msgMap['timestamp'] = msgMap['ts'];

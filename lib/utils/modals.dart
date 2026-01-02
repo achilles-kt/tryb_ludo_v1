@@ -1,6 +1,6 @@
 // lib/utils/modals.dart
 import 'package:flutter/material.dart';
-import '../widgets/waiting_match_modal.dart';
+import '../widgets/modals/waiting_match_modal.dart';
 import '../screens/game_screen.dart';
 
 /// Show waiting modal and by default navigate to GameScreen when paired.
@@ -10,6 +10,7 @@ Future<Map<String, dynamic>?> showWaitingMatchModal({
   required int entryFee,
   bool mockMode = false,
   Duration mockDelay = const Duration(seconds: 4),
+  String mode = '2p',
 }) async {
   final result = await showModalBottomSheet(
     context: context,
@@ -19,6 +20,7 @@ Future<Map<String, dynamic>?> showWaitingMatchModal({
       entryFee: entryFee,
       mockMode: mockMode,
       mockDelay: mockDelay,
+      mode: mode,
     ),
   );
 

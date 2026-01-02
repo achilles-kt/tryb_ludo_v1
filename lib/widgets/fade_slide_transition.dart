@@ -6,11 +6,11 @@ class FadeSlideTransition extends StatefulWidget {
   final double offset; // Vertical offset
 
   const FadeSlideTransition({
-    Key? key,
+    super.key,
     required this.child,
     this.duration = const Duration(milliseconds: 300),
     this.offset = 20.0,
-  }) : super(key: key);
+  });
 
   @override
   _FadeSlideTransitionState createState() => _FadeSlideTransitionState();

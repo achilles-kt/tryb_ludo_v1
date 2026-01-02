@@ -1,102 +1,99 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../theme/app_theme.dart';
-import '../../utils/level_calculator.dart';
 
 class GamePlayerProfile extends StatefulWidget {
   final String uid;
   final String fallbackName;
   final String? fallbackAvatar;
+  final int level;
+  final String city;
   final bool isMe;
   final bool isTurn;
-  final bool isTeam;
-  final Color? teamColor;
+  final Color playerColor;
+  final bool isTeammate;
 
   const GamePlayerProfile({
-    Key? key,
+    super.key,
     required this.uid,
     required this.fallbackName,
     this.fallbackAvatar,
+    this.level = 1,
+    this.city = "Earth",
     this.isMe = false,
     this.isTurn = false,
-    this.isTeam = false,
-    this.teamColor,
-  }) : super(key: key);
+    this.isTeammate = false,
+    required this.playerColor,
+  });
 
   @override
   State<GamePlayerProfile> createState() => _GamePlayerProfileState();
 }
 
 class _GamePlayerProfileState extends State<GamePlayerProfile> {
-  // Use streams to fetch data
-
   @override
   Widget build(BuildContext context) {
     if (widget.uid == 'bot' || widget.uid.startsWith('bot-')) {
       return _buildStaticBadge(
           widget.fallbackName, widget.fallbackAvatar, 1, "AI City");
     }
-
-    return StreamBuilder<DatabaseEvent>(
-        stream: FirebaseDatabase.instance.ref('users/${widget.uid}').onValue,
-        builder: (context, snapshot) {
-          String name = widget.fallbackName;
-          String avatar = widget.fallbackAvatar ?? 'assets/avatars/a1.png';
-          String location = "Earth";
-          int totalEarned = 0;
-
-          if (snapshot.hasData && snapshot.data!.snapshot.value != null) {
-            final data = snapshot.data!.snapshot.value as Map?;
-            if (data != null) {
-              final profile = data['profile'] as Map?;
-              final wallet = data['wallet'] as Map?;
-
-              if (profile != null) {
-                name = profile['displayName'] ?? name;
-                avatar = profile['avatarUrl'] ?? avatar;
-                // Location format: "City, Country" -> just show City
-                location = profile['city'] ?? "Unknown";
-              }
-              if (wallet != null) {
-                totalEarned = (wallet['totalEarned'] as num?)?.toInt() ?? 0;
-              }
-            }
-          }
-
-          final levelInfo = LevelCalculator.calculate(totalEarned);
-          return _buildStaticBadge(name, avatar, levelInfo.level, location);
-        });
+    return _buildStaticBadge(
+        widget.fallbackName, widget.fallbackAvatar, widget.level, widget.city);
   }
 
   Widget _buildStaticBadge(
       String name, String? avatarUrl, int level, String location) {
-    final borderColor = widget.isTurn
-        ? AppTheme.gold
-        : (widget.isTeam
-            ? (widget.teamColor ?? AppTheme.neonBlue)
-            : Colors.white24);
+    // Core Logic per PRD
+    // 1. Ring Color = Player Color (Always)
+    final ringColor = widget.playerColor;
+
+    // 2. Brightness (Turn Indicator)
+    // Active Turn: Full Brightness, Thicker Ring
+    // Inactive: Subdued (Opacity 0.6), Thinner Ring
+    final ringOpacity = widget.isTurn ? 1.0 : 0.6;
+    final ringWidth = widget.isTurn ? 3.0 : 1.5;
+
+    // 3. Team Glow (2v2 only)
+    // Behind Avatar, soft glow.
+    // Explicitly behind ring.
+    final List<BoxShadow> shadows = [];
+    if (widget.isTeammate || (widget.isMe && widget.isTeammate)) {
+      // Note: isTeammate implies "Is in my team".
+      // If isMe is true, and I am in a team game, I should also glow?
+      // PRD: "Glow is visible for: User, User’s teammate".
+      // So yes, if I am in a team, I glow.
+      // The caller passes 'isTeam' which usually means "Is this a team game AND in my team?".
+
+      shadows.add(BoxShadow(
+        color: Colors.white.withOpacity(0.4),
+        blurRadius: 16,
+        spreadRadius: 4,
+      ));
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         // Avatar + Level
         SizedBox(
-          width: 50,
-          height: 50,
+          width: 56, // Slightly larger for glow space
+          height: 56,
           child: Stack(
+            alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
-              // Avatar
-              Container(
+              // 1. Team Glow (Layer 0) & Avatar (Layer 1) & Ring (Layer 2)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
+                  // Layer 0: Shadow
+                  boxShadow: shadows,
+                  // Layer 2: Ring
                   border: Border.all(
-                      color: borderColor, width: widget.isTurn ? 2.5 : 1.5),
-                  boxShadow: widget.isTurn
-                      ? [const BoxShadow(color: AppTheme.gold, blurRadius: 12)]
-                      : null,
+                      color: ringColor.withOpacity(ringOpacity),
+                      width: ringWidth),
                 ),
                 child: ClipOval(
                   child: avatarUrl != null && avatarUrl.startsWith('http')
@@ -111,8 +108,8 @@ class _GamePlayerProfileState extends State<GamePlayerProfile> {
 
               // Level Badge
               Positioned(
-                right: -4,
-                bottom: -4,
+                right: -2,
+                bottom: -2,
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -132,7 +129,7 @@ class _GamePlayerProfileState extends State<GamePlayerProfile> {
             ],
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
 
         // Name & Location
         Container(
@@ -148,11 +145,7 @@ class _GamePlayerProfileState extends State<GamePlayerProfile> {
                       color: Colors.white,
                       fontSize: 10,
                       fontWeight: FontWeight.bold)),
-              Text(location,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.6), fontSize: 8)),
+              // Optional: Location text can be hidden if clutter is too high
             ],
           ),
         )

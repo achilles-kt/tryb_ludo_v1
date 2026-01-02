@@ -4,7 +4,7 @@ import '../../theme/app_theme.dart';
 class SyncCardV2 extends StatelessWidget {
   final VoidCallback onSync;
 
-  const SyncCardV2({Key? key, required this.onSync}) : super(key: key);
+  const SyncCardV2({super.key, required this.onSync});
 
   @override
   Widget build(BuildContext context) {

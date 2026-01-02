@@ -21,12 +21,12 @@ const DEFAULTS = {
             botWaitSec: 45
         },
         "4p_solo": {
-            stake: 1000,
+            stake: 2500,
             queueTimeoutSec: 40,
             botWaitSec: 40
         },
         "4p_team": {
-            stake: 1000,
+            stake: 2500,
             queueTimeoutSec: 60
         },
         "private": {

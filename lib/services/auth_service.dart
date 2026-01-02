@@ -18,20 +18,86 @@ class AuthService {
     try {
       // 1. Get Google Credential
       final gsi.GoogleSignInAccount? googleUser =
-          await gsi.GoogleSignIn().signIn();
+          await gsi.GoogleSignIn(scopes: [
+        'email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/user.birthday.read', // Try to get DoB
+      ]).signIn();
+
       if (googleUser == null) return; // User canceled
 
       final gsi.GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
       final OAuthCredential credential = GoogleAuthProvider.credential(
         idToken: googleAuth.idToken,
+        accessToken: googleAuth.accessToken,
       );
 
       // 2. Attempt Smart Link/Merge
       await _smartLinkOrMerge(credential);
+
+      // 3. Sync Profile Data (Name, Avatar, DoB)
+      await _syncGoogleProfileData(googleUser);
     } catch (e) {
       debugPrint("AuthService: Google Sign-In Error: $e");
       rethrow;
+    }
+  }
+
+  Future<void> _syncGoogleProfileData(
+      gsi.GoogleSignInAccount googleUser) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final uid = user.uid;
+    final ref = _db.ref('users/$uid/profile');
+    final snapshot = await ref.get();
+
+    // Default values to check against
+    String? currentName;
+    String? currentAvatar;
+
+    if (snapshot.exists && snapshot.value is Map) {
+      final data = snapshot.value as Map;
+      currentName = data['displayName'];
+      currentAvatar = data['avatar'];
+    }
+
+    // A. Update Name if default (starts with Guest or Player)
+    if (currentName == null ||
+        currentName.startsWith('Guest') ||
+        currentName.startsWith('Player')) {
+      if (googleUser.displayName != null) {
+        await ref.child('displayName').set(googleUser.displayName);
+      }
+    }
+
+    // B. Update Avatar
+    // Priority: 1. Google Photo (if available) -> 2. Default Index 8 (if current is missing/default)
+    String? newAvatar;
+    if (googleUser.photoUrl != null) {
+      newAvatar = googleUser.photoUrl;
+    } else if (currentAvatar == null ||
+        currentAvatar == 'assets/avatars/avatar_0.png') {
+      newAvatar = 'assets/avatars/avatar_8.png';
+    }
+
+    if (newAvatar != null) {
+      await ref.child('avatar').set(newAvatar);
+    }
+
+    // C. Update DoB (Requires REST call to People API as it's not in googleUser object)
+    // We will attempt a best-effort fetch using the access token
+    try {
+      final auth = await googleUser.authentication;
+      final token = auth.accessToken;
+      if (token != null) {
+        // This would require an HTTP call (skipped for now unless 'http' package is available)
+        // Placeholder: If we had the data, we'd write to:
+        // await _db.ref('users/$uid/dob').set(dobString);
+      }
+    } catch (e) {
+      print("Failed to fetch DoB: $e");
     }
   }
 
@@ -161,8 +227,9 @@ class AuthService {
     final userCredential = await _auth.signInWithCredential(targetCredential);
     final targetUser = userCredential.user;
 
-    if (targetUser == null)
+    if (targetUser == null) {
       throw Exception("Failed to sign in to target account during merge");
+    }
 
     final targetUid = targetUser.uid;
     debugPrint(

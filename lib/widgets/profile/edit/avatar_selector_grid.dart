@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../utils/image_utils.dart';
 
-class AvatarPicker extends StatelessWidget {
+class AvatarSelectorGrid extends StatelessWidget {
   final List<String> avatars;
   final String selectedAvatar;
   final ValueChanged<String> onAvatarSelected;
 
-  const AvatarPicker({
+  const AvatarSelectorGrid({
     super.key,
     required this.avatars,
     required this.selectedAvatar,
@@ -64,7 +65,7 @@ class AvatarPicker extends StatelessWidget {
                   ),
                   child: CircleAvatar(
                     backgroundColor: const Color(0xFF111318),
-                    backgroundImage: AssetImage(asset),
+                    backgroundImage: ImageUtils.getAvatarProvider(asset),
                   ),
                 ),
               );

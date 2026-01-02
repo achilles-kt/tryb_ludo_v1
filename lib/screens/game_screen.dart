@@ -1,19 +1,19 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flame/game.dart' hide Matrix4;
 import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/game/ludo_board_widget.dart';
 import '../game/ludo_game.dart';
 import '../widgets/game/end_game_overlay.dart';
-import '../widgets/chat_sheet.dart';
 import '../state/game_state.dart';
-import '../state/game_state.dart';
-import '../widgets/gold_balance_widget.dart';
 import '../widgets/game/game_player_profile.dart';
 
 import '../widgets/game/chat_overlay.dart';
 import '../widgets/game/dice_sprite_widget.dart'; // Sprite Dice
-import '../services/presence_service.dart';
-import '../services/chat_service.dart'; // ActivityService
+import '../controllers/game_controller.dart'; // NEW
+import '../services/conversion_service.dart'; // Import
+import '../widgets/game/forfeit_dialog.dart';
+import '../widgets/game/game_top_bar.dart';
+import '../widgets/game/game_bottom_controls.dart';
 
 class GameScreen extends StatefulWidget {
   final String gameId;
@@ -31,6 +31,7 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   late LudoGame game;
+  late GameController controller; // NEW
   Timer? _timer;
 
   // Track active widgets
@@ -42,20 +43,35 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     super.initState();
     final uid = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
 
-    // Presence: Set Playing
-    PresenceService().setPlaying(widget.gameId);
+    // 1. Initialize Controller
+    controller = GameController();
+    controller.init(widget.gameId, uid);
 
+    // 2. Listen for completion
+    controller.onGameCompleted = (winnerUid) {
+      if (!_hasShownEndScreen) {
+        _hasShownEndScreen = true;
+        final isWin = (winnerUid == uid);
+        _showEndScreen(isWin ? GameResult.win : GameResult.loss);
+      }
+    };
+
+    // 3. Create Game with Controller
     game = LudoGame(
       gameId: widget.gameId,
       tableId: widget.tableId,
       localUid: uid,
-      onMoveCompleted: _refreshUI,
-      onGameOver: _showEndScreen,
+      controller: controller,
+      // onMoveCompleted: _refreshUI, // Optional now, we can listen to controller
+      // onGameOver: _showEndScreen, // Handled by controller callback above
     );
 
     debugPrint('Game Screen Open and visible | Success | $uid');
 
-    // Refresh UI periodically for timer animation/game loop sync
+    // Listen to generic state changes to refresh GameScreen UI (Avatars, etc)
+    controller.gameState.addListener(_refreshUI);
+
+    // Refresh UI periodically for timer animation/game loop sync (keep for visual smoothness if needed)
     _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) setState(() {});
     });
@@ -63,153 +79,242 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    // Presence: Set back to Online (Idle)
-    PresenceService().setOnline();
     _timer?.cancel();
+    controller.gameState.removeListener(_refreshUI);
+    controller.dispose(); // Dispose Controller
     super.dispose();
   }
 
+  bool _hasShownEndScreen = false;
+
   void _refreshUI() {
     if (mounted) setState(() {});
+
+    // Check if I have been marked as left (Forfeit 4P or 2P)
+    // Access state via controller now
+    if (!_hasShownEndScreen && controller.gameState.value.players.isNotEmpty) {
+      final myData = controller
+          .gameState.value.players[controller.gameState.value.localPlayerIndex];
+      // Wait, localPlayerIndex is an INT index. We need UID lookup or map access.
+      // Controller state has players Map<String, dynamic>.
+      // We need local UID.
+      final localUid = FirebaseAuth.instance.currentUser?.uid;
+      if (localUid != null) {
+        final myData = controller.gameState.value.players[localUid];
+        if (myData != null) {
+          final status = myData['status'];
+          if (status == 'left' || status == 'kicked') {
+            _hasShownEndScreen = true;
+            // Trigger Loss Screen
+            _showEndScreen(GameResult.loss);
+          }
+        }
+      }
+    }
   }
 
-  void _showEndScreen(GameResult result) {
+  Future<void> _showEndScreen(GameResult result) async {
     // Activity Stream: Log Game Result
-    try {
-      final allUids = game.state.players.keys.toList();
-      final convId = ActivityService.instance.getCanonicalId(allUids);
-
-      final winnerUid = result == GameResult.win
-          ? game.localUid
-          : (game.winnerUid ?? 'Unknown');
-
+    // Activity Stream: Log Game Result
+    if (result == GameResult.win) {
+      final winnerUid = FirebaseAuth.instance.currentUser?.uid ?? 'unknown';
       // Helper to get name
-      String getName(String id) => game.state.players[id]?['name'] ?? 'Player';
+      String getName(String id) =>
+          controller.gameState.value.players[id]?['name'] ?? 'Player';
       final winnerName = getName(winnerUid);
 
-      ActivityService.instance.sendMessageToConversation(
-        convId: convId,
-        text: "Game Finished. Winner: $winnerName 🏆",
-        type: "game_result",
-        payload: {
-          "result": result == GameResult.win ? "win" : "loss",
-          "winnerUid": winnerUid,
-          "gameId": widget.gameId
-        },
-      );
-    } catch (e) {
-      debugPrint("Error logging game result: $e");
+      controller.logGameResult(winnerUid, winnerName, true);
     }
 
-    showDialog(
+    // Update Game Notifier so Overlay can render
+    game.gameEndNotifier.value = GameEndState(
+      isWin: result == GameResult.win,
+      rewardText:
+          result == GameResult.win ? "+500 Gold" : "Better luck next time!",
+    );
+
+    await showDialog(
+      // Await
       context: context,
       barrierDismissible: false,
       builder: (_) => EndGameOverlay(game: game),
     );
+
+    // Trigger Nudge Check after game
+    if (mounted) {
+      await ConversionService.instance.checkGameCompletion(context);
+    }
+  }
+
+  Future<void> _handleForfeit() async {
+    // 1. Show Confirmation Dialog
+    // Determine context (Team/Solo) for message
+    final meta = game.getPlayerMeta(PlayerSpot.bottomLeft); // Me
+    final isTeam = meta?.isTeam ?? false;
+    // We haven't fully implemented teammate status check in UI yet,
+    // so we'll just pass generic isTeamMode for specific text if needed.
+    // Ideally we check if teammate left, but for MVP just isTeamMode is enough warning.
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ForfeitDialog(isTeamMode: isTeam),
+    );
+
+    if (confirm != true) return;
+
+    // 2. Call Backend
+    if (!mounted) return;
+
+    // 2. Instant UI Update (Optimistic)
+    // We do not wait for server. We assume success to unblock the user.
+    if (!mounted) return;
+
+    if (!_hasShownEndScreen) {
+      _hasShownEndScreen = true;
+      _showEndScreen(GameResult.loss);
+    }
+
+    // 3. Fire-and-Forget Backend Call
+    // 3. Fire-and-Forget Backend Call
+    controller.forfeitGame();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent, // Background handled by container
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 1.3,
-            colors: [
-              Color(0xFF1E293B), // Spot of light in center
-              Color(0xFF0F1218), // Dark corners
-            ],
-            stops: [0.0, 0.9],
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        await _handleForfeit();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent, // Background handled by container
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment.center,
+              radius: 1.3,
+              colors: [
+                Color(0xFF1E293B), // Spot of light in center
+                Color(0xFF0F1218), // Dark corners
+              ],
+              stops: [0.0, 0.9],
+            ),
           ),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final screenW = constraints.maxWidth;
-            final screenH = constraints.maxHeight;
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final screenW = constraints.maxWidth;
+              final screenH = constraints.maxHeight;
 
-            // Define safe area for board
-            // TopBar is ~80px, BottomArea is ~100px.
-            // Add padding (24px top, 24px bottom).
-            final safeHeight = screenH - 180;
+              // Calculate Safe Area
+              final padding = MediaQuery.of(context).padding;
+              final safeTop = padding.top;
+              final safeBottom = padding.bottom;
 
-            // Board is a square. Constrain by width (90%) AND available height.
-            final boardSize = (screenW * 0.90).clamp(0.0, safeHeight);
+              // Estimated UI Heights (TopBar + Margins, BottomControls + Margins)
+              const topBarHeight = 60.0;
+              const bottomControlsHeight = 80.0;
 
-            // Center board vertically in the safe zone
-            // But bias slightly upwards (-20) as before if space allows
-            final availableVerticalSpace = screenH - boardSize;
-            final boardTop = (availableVerticalSpace / 2 - 20)
-                .clamp(80.0, screenH - boardSize - 80.0);
-            final boardLeft = (screenW - boardSize) / 2;
+              // Avatar Space needed ABOVE and BELOW the board
+              // Avatar Widget is approx 80px tall. Margin is 48px.
+              // Total reserve per side: ~128px.
+              // We'll use 130.0 for safety.
+              const avatarReservePerSide = 130.0;
 
-            return Stack(
-              children: [
-                // ---------------- TOP BAR ----------------
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: _TopBar(),
-                ),
+              final topInterface = safeTop + topBarHeight;
+              final bottomInterface = safeBottom + bottomControlsHeight;
 
-                // ---------------- BOARD (FLAME) ----------------
-                Positioned(
-                  left: boardLeft,
-                  top: boardTop,
-                  width: boardSize,
-                  height: boardSize,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: GameWidget(game: game),
+              // Available vertical space for the board
+              // MUST subtract avatar space so they don't get pushed into UI/offscreen
+              final usableHeight = screenH -
+                  topInterface -
+                  bottomInterface -
+                  (avatarReservePerSide * 2);
+
+              // Board Size: 98% width (increased from 90% to compensate for camera zoom)
+              // but still clamped to usable height
+              final boardSize = (screenW * 0.98).clamp(0.0, usableHeight);
+
+              // Center Vertically in the Usable Space
+              // The "Usable Space" here is the area between TopUI and BottomUI.
+              // The Board + Avatars must be centered there.
+
+              final fullAvailableHeight = screenH -
+                  topInterface -
+                  bottomInterface; // Space between headers
+              // emptySpace is how much "air" is left after Board fits
+              final emptySpace = fullAvailableHeight - boardSize;
+
+              // Board Top is absolute position from top of screen
+              // We Center it in the Full Available Height
+              final boardTop = topInterface + (emptySpace / 2);
+
+              final boardLeft = (screenW - boardSize) / 2;
+
+              return Stack(
+                children: [
+                  // ---------------- TOP BAR ----------------
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: const GameTopBar(),
                   ),
-                ),
 
-                // ---------------- AVATARS ----------------
-                // Dynamically render avatars based on visual seats
-                // Visual 0 = BL (Me), 1 = TL, 2 = TR, 3 = BR
-                for (int visualSeat = 0; visualSeat < 4; visualSeat++) ...[
-                  if (game.getPlayerMetaByVisualSeat(visualSeat) != null)
-                    _buildAvatarAtVisualSeat(context, visualSeat, boardLeft,
-                        boardTop, boardSize, game),
-                ],
+                  // ---------------- BOARD (FLAME) ----------------
+                  LudoBoardWidget(
+                    game: game,
+                    boardSize: boardSize,
+                    top: boardTop,
+                    left: boardLeft,
+                  ),
 
-                // ---------------- DICE POSITIONS ----------------
-                _buildDice(boardLeft, boardTop, boardSize),
+                  // ---------------- AVATARS ----------------
+                  // Dynamically render avatars based on visual seats
+                  // Visual 0 = BL (Me), 1 = TL, 2 = TR, 3 = BR
+                  for (int visualSeat = 0; visualSeat < 4; visualSeat++) ...[
+                    if (game.getPlayerMetaByVisualSeat(visualSeat) != null)
+                      _buildAvatarAtVisualSeat(context, visualSeat, boardLeft,
+                          boardTop, boardSize, game),
+                  ],
 
-                // ---------------- FLYING BUBBLES & STATIC ----------------
-                Positioned.fill(
-                  child: ChatOverlay(
-                    gameId: widget.gameId,
-                    players: game.state.players,
-                    localPlayerIndex: game.state.localPlayerIndex,
-                    boardRect: Rect.fromLTWH(
-                      boardLeft,
-                      boardTop,
-                      boardSize,
-                      boardSize,
+                  // ---------------- DICE POSITIONS ----------------
+                  _buildDice(boardLeft, boardTop, boardSize),
+
+                  // ---------------- FLYING BUBBLES & STATIC ----------------
+                  Positioned.fill(
+                    child: ChatOverlay(
+                      gameId: widget.gameId,
+                      players: game.state.players,
+                      localPlayerIndex: game.state.localPlayerIndex,
+                      boardRect: Rect.fromLTWH(
+                        boardLeft,
+                        boardTop,
+                        boardSize,
+                        boardSize,
+                      ),
                     ),
                   ),
-                ),
 
-                // ---------------- BOTTOM CHAT PILL ----------------
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _BottomArea(
-                    gameId: widget.gameId,
-                    isTeamChat: _isTeamChat,
-                    showTeamToggle: game.state.players.length > 2,
-                    players: game.state.players,
-                    onToggleTeam: () =>
-                        setState(() => _isTeamChat = !_isTeamChat),
+                  // ---------------- BOTTOM CHAT PILL ----------------
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: GameBottomControls(
+                      gameId: widget.gameId,
+                      isTeamChat: _isTeamChat,
+                      showTeamToggle: game.state.players.length > 2,
+                      players: game.state.players,
+                      onToggleTeam: () =>
+                          setState(() => _isTeamChat = !_isTeamChat),
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -274,6 +379,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
         }
 
+        // Fix: Ignore interactions when not waiting for roll
+        final canTap = isYourTurn && phase == TurnPhase.waitingRoll;
+
         return AnimatedPositioned(
           duration: const Duration(milliseconds: 500),
           curve: Curves.easeInOut,
@@ -281,17 +389,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           top: targetTop,
           width: targetSize,
           height: targetSize,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: () {
-              if (isYourTurn && phase == TurnPhase.waitingRoll) {
-                game.rollDice();
-              }
-            },
-            child: DiceSpriteWidget(
-              controller: game.controller,
-              size: targetSize,
-              timeLeft: _calculateTimeLeft(state),
+          child: IgnorePointer(
+            ignoring: !canTap,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                if (canTap) {
+                  game.rollDice();
+                }
+              },
+              child: DiceSpriteWidget(
+                controller: game.controller,
+                size: targetSize,
+                timeLeft: _calculateTimeLeft(state),
+              ),
             ),
           ),
         );
@@ -302,26 +413,32 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget _buildAvatarAtVisualSeat(BuildContext context, int visualSeat,
       double boardLeft, double boardTop, double boardSize, LudoGame game) {
     final meta = game.getPlayerMetaByVisualSeat(visualSeat);
-    if (meta == null) return const SizedBox.shrink();
+    if (meta == null) {
+      // debugPrint("VisualSeat $visualSeat: Meta is NULL");
+      return const SizedBox.shrink();
+    }
+    // debugPrint("VisualSeat $visualSeat: ${meta.name} (${meta.uid}) Team:${meta.isTeam}");
 
     double? top, left, right;
 
     // Position Logic
+    const double verticalMargin = 48.0; // Symmetrical margin
+
     switch (visualSeat) {
       case 0: // Bottom-Left (Me)
-        top = boardTop + boardSize + 32;
+        top = boardTop + boardSize + verticalMargin;
         left = 16;
         break;
       case 1: // Top-Left
-        top = boardTop - 64;
+        top = boardTop - 50 - verticalMargin;
         left = 16;
         break;
       case 2: // Top-Right (Opponent or Teammate)
-        top = boardTop - 64;
+        top = boardTop - 50 - verticalMargin;
         right = 16;
         break;
       case 3: // Bottom-Right
-        top = boardTop + boardSize + 32;
+        top = boardTop + boardSize + verticalMargin;
         right = 16;
         break;
     }
@@ -342,10 +459,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               uid: meta.uid,
               fallbackName: meta.name ?? 'Player',
               fallbackAvatar: meta.avatarUrl,
+              level: meta.level,
+              city: meta.city,
               isMe: meta.isYou,
-              isTeam: meta.isTeam,
+              isTeammate: meta.isTeam,
               isTurn: activeTurn,
-              teamColor: meta.glowColor,
+              playerColor: meta.playerColor,
             );
           }),
     );
@@ -359,152 +478,5 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final total = 10000; // 10s (Matches backend)
     final remaining = state.turnDeadlineTs! - now;
     return (remaining / total).clamp(0.0, 1.0);
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.03),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withOpacity(0.08))),
-          child: Row(
-            children: [
-              // Back Button
-              GestureDetector(
-                  onTap: () => Navigator.of(context).pop(),
-                  child: Icon(Icons.arrow_back_ios_new,
-                      size: 18, color: Colors.white70)),
-              const SizedBox(width: 16),
-
-              // Title or Game ID
-              Text("Game Room",
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold)),
-
-              const Spacer(),
-              const GoldBalanceWidget(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _BottomArea extends StatelessWidget {
-  final String? gameId;
-  final bool isTeamChat;
-  final bool showTeamToggle;
-  final VoidCallback? onToggleTeam;
-  final Map<String, dynamic>? players;
-
-  const _BottomArea({
-    this.gameId,
-    this.isTeamChat = false,
-    this.showTeamToggle = true,
-    this.onToggleTeam,
-    this.players,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
-
-    return Container(
-      padding: const EdgeInsets.only(bottom: 24, top: 12),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [Color(0xCC0F1218), Colors.transparent],
-        ),
-      ),
-      child: Center(
-        child: GestureDetector(
-          onTap: () {
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: const Color(0xFF14161b),
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              builder: (_) => ChatSheet(
-                gameId: gameId,
-                initialIsTeamChat: isTeamChat,
-                showTeamToggle: showTeamToggle,
-                players: players,
-              ),
-            );
-          },
-          child: Container(
-            width: w * 0.90,
-            height: 52,
-            decoration: BoxDecoration(
-              color: isTeamChat
-                  ? const Color(0xFFC0C0C0).withOpacity(0.2)
-                  : Colors.white.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: isTeamChat
-                    ? const Color(0xFFC0C0C0)
-                    : Colors.white.withOpacity(0.16),
-              ),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                if (showTeamToggle) ...[
-                  GestureDetector(
-                    onTap: () {
-                      onToggleTeam?.call(); // Toggle specific button
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isTeamChat
-                            ? const Color(0xFFC0C0C0)
-                            : Colors.deepPurple,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        isTeamChat ? "TEAM" : "ALL",
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: isTeamChat ? Colors.black : Colors.white),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: Text(
-                    isTeamChat ? 'Message Team...' : 'Tap to game chat...',
-                    style: TextStyle(
-                        color: isTeamChat
-                            ? const Color(0xFFC0C0C0)
-                            : Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ),
-                const Icon(Icons.emoji_emotions_outlined,
-                    color: Colors.white70, size: 22),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }

@@ -2,8 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../theme/app_theme.dart';
 
-class LobbyHeader extends StatelessWidget {
-  const LobbyHeader({Key? key}) : super(key: key);
+class LobbyHeader extends StatefulWidget {
+  const LobbyHeader({super.key});
+
+  @override
+  State<LobbyHeader> createState() => _LobbyHeaderState();
+}
+
+class _LobbyHeaderState extends State<LobbyHeader> {
+  late Stream<DatabaseEvent> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseDatabase.instance.ref('status').onValue;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,17 +35,40 @@ class LobbyHeader extends StatelessWidget {
 
           // Real Online Count Logic
           StreamBuilder<DatabaseEvent>(
-              stream: FirebaseDatabase.instance.ref('status').onValue,
+              stream: _stream,
               builder: (context, snapshot) {
-                int realOnline = 0;
-                final data = snapshot.data?.snapshot.value as Map?;
-                if (data != null) {
-                  data.forEach((k, v) {
-                    if (v is Map && v['state'] == 'online') {
-                      realOnline++;
-                    }
-                  });
+                if (snapshot.hasError) {
+                  debugPrint("Online Count Error: ${snapshot.error}");
+                  return Text("Err: ${snapshot.error}",
+                      style: const TextStyle(color: Colors.red, fontSize: 8));
                 }
+
+                int realOnline = 0;
+                final rawValue = snapshot.data?.snapshot.value;
+
+                if (rawValue != null) {
+                  debugPrint("LobbyHeader: Raw Online Data: $rawValue");
+                  if (rawValue is Map) {
+                    rawValue.forEach((k, v) {
+                      // debugPrint("User $k: $v");
+                      if (v is Map) {
+                        final state = v['state'];
+                        // debugPrint("  State: $state");
+                        if (state == 'online') {
+                          realOnline++;
+                        }
+                      }
+                    });
+                  } else if (rawValue is List) {
+                    for (var v in rawValue) {
+                      if (v is Map && v['state'] == 'online') {
+                        realOnline++;
+                      }
+                    }
+                  }
+                }
+                debugPrint("LobbyHeader: Real Online Count: $realOnline");
+
                 // Add 256 as requested
                 final displayCount = realOnline + 256;
 

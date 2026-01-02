@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions";
-import { db } from "../admin";
+import { db, admin } from "../admin";
 import * as crypto from "crypto";
 
 // Helper: Hash Phone consistently
@@ -11,6 +11,97 @@ function hashPhone(phone: string): string {
         target = clean.substring(clean.length - 10);
     }
     return crypto.createHash("sha256").update(target).digest("hex");
+}
+
+// ---------------------------------------------------------
+// 1. Register Phone (Privacy: Indexes Hash)
+// ---------------------------------------------------------
+// Helper: Send "User Joined" Notification
+async function notifyContactJoined(targetUid: string, joinedUid: string) {
+    // 1. Get Target Token
+    const userSnap = await db.ref(`users/${targetUid}/fcmToken`).get();
+    const token = userSnap.val();
+    if (!token) return;
+
+    // 2. Get Joined User Name
+    const joinedSnap = await db.ref(`users/${joinedUid}/profile/displayName`).get();
+    const joinedName = joinedSnap.val() || "A contact";
+
+    // 3. Send Notification
+    try {
+        await admin.messaging().send({
+            token: token,
+            notification: {
+                title: "New Friend on Tryb!",
+                body: `${joinedName} has joined Tryb. Say hi!`,
+            },
+            data: {
+                type: "contact_joined",
+                peerId: joinedUid,
+                click_action: "FLUTTER_NOTIFICATION_CLICK"
+            },
+            android: {
+                priority: "high" as const,
+                notification: {
+                    clickAction: "FLUTTER_NOTIFICATION_CLICK"
+                }
+            },
+            apns: {
+                payload: {
+                    aps: {
+                        sound: "default"
+                    }
+                }
+            }
+        });
+        console.log(`-> Sent Contact Joined FCM to ${targetUid}`);
+    } catch (e) {
+        console.error(`-> Failed to send Contact Joined FCM to ${targetUid}`, e);
+    }
+}
+
+// Helper: Create Mutual/One-Way connections
+async function createContactMatches(uid: string, matchedUid: string, now: number): Promise<any> {
+    const updates: any = {};
+
+    // 1. Record directional link: A -> B
+    updates[`contactsGraph/${uid}/${matchedUid}`] = true;
+
+    // 2. Check if B -> A exists (Reciprocal check)
+    const reciprocalSnap = await db.ref(`contactsGraph/${matchedUid}/${uid}`).get();
+    const isMutual = reciprocalSnap.exists();
+
+    if (isMutual) {
+        // MUTUAL! Make Friends.
+        updates[`friends/${uid}/${matchedUid}`] = {
+            status: 'friend',
+            updatedAt: now,
+            source: 'contacts'
+        };
+        updates[`friends/${matchedUid}/${uid}`] = {
+            status: 'friend',
+            updatedAt: now,
+            source: 'contacts'
+        };
+
+        // Remove from suggestions
+        updates[`suggestedFriends/${uid}/${matchedUid}`] = null;
+        updates[`suggestedFriends/${matchedUid}/${uid}`] = null;
+
+    } else {
+        // ONE-WAY! Create Suggestions.
+        // A sees B (A is the one who synced/has the contact number)
+        updates[`suggestedFriends/${uid}/${matchedUid}`] = {
+            source: 'contacts',
+            ts: now
+        };
+        // B sees A ("You might know A" - debatable, but usually good for growth)
+        updates[`suggestedFriends/${matchedUid}/${uid}`] = {
+            source: 'contacts',
+            ts: now
+        };
+    }
+    return updates;
 }
 
 // ---------------------------------------------------------
@@ -29,13 +120,36 @@ export const registerPhone = functions.https.onCall(async (data, context) => {
 
     // 1. Hash it
     const hash = hashPhone(phone);
+    const now = Date.now();
 
-    // 2. Index it: phoneIndex/{hash} = uid
-    // We strictly use set() to overwrite any old mapping
-    await db.ref(`phoneIndex/${hash}`).set(uid);
+    // We'll collect persistent updates first
+    const persistentUpdates: any = {};
+    persistentUpdates[`phoneIndex/${hash}`] = uid;
+    persistentUpdates[`users/${uid}/profile/phoneHash`] = hash;
 
-    // 3. Store hash in profile for reference (optional, but good for "my hash")
-    await db.ref(`users/${uid}/profile/phoneHash`).set(hash);
+    // 4. REVERSE LOOKUP: Who has this hash in their contacts?
+    // Check uploadedContacts/{hash}/{uploaderUid}
+    const uploadedSnap = await db.ref(`uploadedContacts/${hash}`).get();
+
+    // Check revers index
+    if (uploadedSnap.exists()) {
+        const uploaders = uploadedSnap.val(); // Map of {uid: true}
+        console.log(`Register Phone: Found ${Object.keys(uploaders).length} users who know this number.`);
+
+        for (const uploaderUid of Object.keys(uploaders)) {
+            if (uploaderUid === uid) continue;
+
+            // uploaderUid (A) has uid (B).
+            const matchUpdates = await createContactMatches(uploaderUid, uid, now);
+            Object.assign(persistentUpdates, matchUpdates);
+
+            // 5. Send Notification to A (Old User)
+            // Fire and forget notification to avoid slowing down response significantly
+            notifyContactJoined(uploaderUid, uid).catch(e => console.error(e));
+        }
+    }
+
+    await db.ref().update(persistentUpdates);
 
     console.log(`Registered phone hash for user ${uid}`);
     return { success: true };
@@ -55,111 +169,91 @@ export const syncContacts = functions.https.onCall(async (data, context) => {
         return { matches: [] };
     }
 
-    // Limit batch size to prevent abuse? 
-    // For now, allow 1000-2000.
     if (hashes.length > 5000) {
         throw new functions.https.HttpsError("invalid-argument", "Too many contacts to sync at once.");
     }
 
-    // RTDB doesn't support "WHERE IN [...]".
-    // We must fetch the needed nodes efficiently.
-    // OPTION A: If phoneIndex is huge, fetching individual paths is slow (N reads).
-    // OPTION B: If we assume client sends "all contacts", that's heavy.
-    // REALITY: RTDB is fast. We can do parallel gets or use a specific structure.
+    // A. Store these hashes for future lookup (Persistent Sync)
+    // We write to `uploadedContacts/{hash}/{uid} = true`
+    // This allows *new* users to find US if we have their number.
+    const now = Date.now();
+    const persistenceUpdates: any = {};
 
-    // Better strategy for RTDB:
-    // We can't query multiple keys at once easily without downloading parent.
-    // If `phoneIndex` grows to 1M users, we DO NOT want to download it all.
-    // We have to iterate list and `db.ref('phoneIndex/' + hash).get()`.
-    // We can run these in parallel promises with concurrency limit.
+    // Using a loop here might generate a huge update object if 5000 contacts. 
+    // RTDB update limit is ~1MB or so. 5000 paths might be too big for one atomic update.
+    // But realistically hashes are short keys. 
+    // Let's do it in chunks if needed, but for now we mix it with match logic below.
+
+    // Note: Writing 1000s of `uploadedContacts` entries is heavy. 
+    // We'll perform "Check & Write" in chunks.
 
     const matches: string[] = [];
-    const promises: Promise<void>[] = [];
 
-    // Simple chunking to avoid choking Cloud Functions
+    // Chunk process
     const CHUNK_SIZE = 50;
+
+    // We will accumulate ALL updates (persistence + matches) to execute in batches or one go?
+    // If we have 2000 contacts, one big update is risky.
+    // Let's verify matches in chunks, but write persistence in parallel?
+
+    // Optimization: Just check matches from `phoneIndex`. 
+    // Write persistence in background? No, we need it done.
+
+    // Let's iterate and build a big update object, but if it gets too big, we flush it?
+    // Simplified approach: iterate chunks.
+
+    const results: any[] = []; // Profiles to return
 
     for (let i = 0; i < hashes.length; i += CHUNK_SIZE) {
         const chunk = hashes.slice(i, i + CHUNK_SIZE);
+        const chunkUpdates: any = {};
+
         const chunkPromises = chunk.map(async (h) => {
             if (typeof h !== 'string') return;
+
+            // 1. Persistence Write Preparation
+            // uploadedContacts/HASH/MY_UID = true
+            chunkUpdates[`uploadedContacts/${h}/${uid}`] = true;
+
+            // 2. Check Match in phoneIndex
             const snap = await db.ref(`phoneIndex/${h}`).get();
             if (snap.exists()) {
                 const matchedUid = snap.val();
-                if (matchedUid !== uid) { // Don't match self
+                if (matchedUid !== uid) {
                     matches.push(matchedUid);
+                    // Generate match logic updates immediately?
+                    // We can't do await creates inside map easily without Promise.all
+                    // Let's just collect matchedUid and process after.
                 }
             }
         });
+
         await Promise.all(chunkPromises);
-    }
 
-    if (matches.length === 0) {
-        return { matches: [] };
-    }
-
-    // Process Graph Logic
-    const updates: any = {};
-    const results: any[] = [];
-    const now = Date.now();
-
-    // We need to check reciprocal links for ALL matches found.
-    // "Does B know A?" -> Check `contactsGraph/B/A`
-
-    // We can fetch `contactsGraph` for each match or optimize.
-    // Optimization: We know A just found B. So we set `contactsGraph/A/B = true`.
-    // We check `contactsGraph/B/A`.
-
-    for (const matchedUid of matches) {
-        // 1. Record directional link: A -> B
-        updates[`contactsGraph/${uid}/${matchedUid}`] = true;
-
-        // 2. Check if B -> A exists
-        const reciprocalSnap = await db.ref(`contactsGraph/${matchedUid}/${uid}`).get();
-        const isMutual = reciprocalSnap.exists();
-
-        if (isMutual) {
-            // MUTUAL! Make Friends.
-            // A -> B
-            updates[`friends/${uid}/${matchedUid}`] = {
-                status: 'friend',
-                updatedAt: now,
-                source: 'contacts'
-            };
-            // B -> A
-            updates[`friends/${matchedUid}/${uid}`] = {
-                status: 'friend',
-                updatedAt: now,
-                source: 'contacts'
-            };
-
-            // Remove from suggestions (if any)
-            updates[`suggestedFriends/${uid}/${matchedUid}`] = null;
-            updates[`suggestedFriends/${matchedUid}/${uid}`] = null;
-
-        } else {
-            // ONE-WAY! Create Suggestions.
-            // A sees B
-            updates[`suggestedFriends/${uid}/${matchedUid}`] = {
-                source: 'contacts',
-                ts: now
-            };
-            // B sees A ("You might know A")
-            updates[`suggestedFriends/${matchedUid}/${uid}`] = {
-                source: 'contacts',
-                ts: now
-            };
-        }
-
-        // Fetch profile for return (optional, mostly for UI feedback)
-        const pSnap = await db.ref(`users/${matchedUid}/profile`).get();
-        if (pSnap.exists()) {
-            results.push({ ...pSnap.val(), uid: matchedUid });
+        // Commit Persistence for this chunk immediately (to keep payload small)
+        if (Object.keys(chunkUpdates).length > 0) {
+            await db.ref().update(chunkUpdates);
         }
     }
 
-    if (Object.keys(updates).length > 0) {
-        await db.ref().update(updates);
+    // Now process the matches found (usually small number, < 100)
+    if (matches.length > 0) {
+        const matchUpdates: any = {};
+
+        for (const matchedUid of matches) {
+            const up = await createContactMatches(uid, matchedUid, now);
+            Object.assign(matchUpdates, up);
+
+            // Fetch profile for UI
+            const pSnap = await db.ref(`users/${matchedUid}/profile`).get();
+            if (pSnap.exists()) {
+                results.push({ ...pSnap.val(), uid: matchedUid });
+            }
+        }
+
+        if (Object.keys(matchUpdates).length > 0) {
+            await db.ref().update(matchUpdates);
+        }
     }
 
     console.log(`Sync Contacts: Processed ${matches.length} matches for User ${uid}`);

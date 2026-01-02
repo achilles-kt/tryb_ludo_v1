@@ -83,48 +83,57 @@ export const onMessageCreated = functions.database
     });
 
 // ---------------------------------------------------------
-// 2. On Friend Request -> Send Notification
+// 2. On Friend Request (Status changes to 'pending')
 // ---------------------------------------------------------
-// Assuming structure: users/{uid}/friend_requests/{senderId} = true/timestamp
-export const onFriendRequest = functions.database
-    .ref("users/{uid}/friend_requests/{senderId}")
-    .onCreate(async (snapshot, context) => {
+export const onFriendRelationshipUpdate = functions.database
+    .ref("friends/{uid}/{senderId}")
+    .onWrite(async (change, context) => {
         const targetUid = context.params.uid;
         const senderId = context.params.senderId;
 
-        console.log(`🔔 NOTIF: Friend Request ${senderId} -> ${targetUid}`);
+        const before = change.before.exists() ? change.before.val() : null;
+        const after = change.after.exists() ? change.after.val() : null;
 
-        // Get Sender Name
-        const senderSnap = await db.ref(`users/${senderId}/profile/displayName`).get();
-        const senderName = senderSnap.val() || "Someone";
+        const statusBefore = before?.status;
+        const statusAfter = after?.status;
 
-        // Get Target Token
-        const tokenSnap = await db.ref(`users/${targetUid}/fcmToken`).get();
-        const token = tokenSnap.val();
+        // CASE A: New Friend Request (pending)
+        if (statusAfter === 'pending' && statusBefore !== 'pending') {
+            console.log(`🔔 NOTIF: Friend Pending ${senderId} -> ${targetUid}`);
 
-        if (!token) return;
+            // Get Sender Name
+            const senderSnap = await db.ref(`users/${senderId}/profile/displayName`).get();
+            const senderName = senderSnap.val() || "Someone";
 
-        try {
-            await admin.messaging().send({
-                token: token,
-                notification: {
-                    title: "New Friend Request",
-                    body: `${senderName} wants to be friends!`,
-                },
-                data: {
-                    type: "friend_request",
-                    senderId: senderId,
-                    click_action: "FLUTTER_NOTIFICATION_CLICK"
-                },
-                android: {
-                    priority: "high" as const,
+            // Get Target Token
+            const tokenSnap = await db.ref(`users/${targetUid}/fcmToken`).get();
+            const token = tokenSnap.val();
+
+            if (!token) return;
+
+            try {
+                await admin.messaging().send({
+                    token: token,
                     notification: {
-                        clickAction: "FLUTTER_NOTIFICATION_CLICK"
+                        title: "New Friend Request",
+                        body: `${senderName} wants to be friends!`,
+                    },
+                    data: {
+                        type: "friend_request",
+                        senderId: senderId,
+                        senderName: senderName, // Pass name for UI
+                        click_action: "FLUTTER_NOTIFICATION_CLICK"
+                    },
+                    android: {
+                        priority: "high" as const,
+                        notification: {
+                            clickAction: "FLUTTER_NOTIFICATION_CLICK"
+                        }
                     }
-                }
-            });
-            console.log(`-> Sent Friend Req FCM to ${targetUid}`);
-        } catch (e) {
-            console.error(`-> Failed to send Friend Req FCM to ${targetUid}`, e);
+                });
+                console.log(`-> Sent Friend Req FCM to ${targetUid}`);
+            } catch (e) {
+                console.error(`-> Failed to send Friend Req FCM to ${targetUid}`, e);
+            }
         }
     });

@@ -57,7 +57,6 @@ class AppTheme {
         primary: neonBlue,
         secondary: neonPurple,
         surface: surface,
-        background: bgDark,
       ),
     );
   }

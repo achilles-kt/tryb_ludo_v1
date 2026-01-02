@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
-import '../services/invite_service.dart';
+import '../../services/invite_service.dart';
 
 class InviteWaitingModal extends StatefulWidget {
   final String inviteId;
   final bool isHost; // To differentiate title/messages if needed
 
   const InviteWaitingModal({
-    Key? key,
+    super.key,
     required this.inviteId,
     this.isHost = false,
-  }) : super(key: key);
+  });
 
   @override
   _InviteWaitingModalState createState() => _InviteWaitingModalState();
@@ -143,9 +143,9 @@ class _InviteWaitingModalState extends State<InviteWaitingModal> {
                       const SizedBox(height: 20),
                       ElevatedButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text("Close"),
                         style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white24),
+                        child: const Text("Close"),
                       )
                     ],
                   )

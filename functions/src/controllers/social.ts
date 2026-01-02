@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions";
-import { db } from "../admin";
+import { db, admin } from "../admin";
 
 // ---------------------------------------------------------
 // 1. Send Friend Request
@@ -106,7 +106,39 @@ export const respondToFriendRequest = functions.https.onCall(async (data, contex
             updatedAt: now,
             source: snap.val().source
         };
+        // Clean up suggestions
+        updates[`suggestedFriends/${uid}/${targetUid}`] = null;
+        updates[`suggestedFriends/${targetUid}/${uid}`] = null;
         console.log(`Friend request accepted: ${uid} <-> ${targetUid}`);
+
+        // NOTIFY REQUESTER (targetUid)
+        const tokenSnap = await db.ref(`users/${targetUid}/fcmToken`).get();
+        const token = tokenSnap.val();
+        if (token) {
+            // Get My Name
+            const myProfile = await db.ref(`users/${uid}/profile/displayName`).get();
+            const myName = myProfile.val() || "A user";
+
+            await admin.messaging().send({
+                token: token,
+                notification: {
+                    title: "Friend Request Accepted",
+                    body: `${myName} is now your friend!`,
+                },
+                data: {
+                    type: "friend_accepted", // Handled by client to open chat
+                    peerId: uid, // Me (who accepted)
+                    peerName: myName,
+                    click_action: "FLUTTER_NOTIFICATION_CLICK"
+                },
+                android: {
+                    priority: "high" as const,
+                    notification: {
+                        clickAction: "FLUTTER_NOTIFICATION_CLICK"
+                    }
+                }
+            }).catch(console.error);
+        }
     } else {
         // Reject - remove both
         updates[`friends/${uid}/${targetUid}`] = null;

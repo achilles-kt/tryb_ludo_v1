@@ -4,7 +4,7 @@ import 'create_table_sheet.dart';
 
 class PlayOptionsSheet extends StatelessWidget {
   final Function(String mode) onSelect;
-  PlayOptionsSheet({required this.onSelect});
+  const PlayOptionsSheet({super.key, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {

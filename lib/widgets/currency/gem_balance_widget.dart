@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
-import '../theme/app_theme.dart';
+import '../../theme/app_theme.dart';
 
-/// Displays the user's current gold balance with real-time Firebase sync
-class GoldBalanceWidget extends StatefulWidget {
+/// Displays the user's current gem balance with real-time Firebase sync
+class GemBalanceWidget extends StatefulWidget {
   final double? fontSize;
   final Color? backgroundColor;
   final Color? borderColor;
 
-  const GoldBalanceWidget({
+  const GemBalanceWidget({
     super.key,
     this.fontSize,
     this.backgroundColor,
@@ -17,58 +17,57 @@ class GoldBalanceWidget extends StatefulWidget {
   });
 
   @override
-  State<GoldBalanceWidget> createState() => _GoldBalanceWidgetState();
+  State<GemBalanceWidget> createState() => _GemBalanceWidgetState();
 }
 
-class _GoldBalanceWidgetState extends State<GoldBalanceWidget> {
-  int _goldBalance = 0;
+class _GemBalanceWidgetState extends State<GemBalanceWidget> {
+  int _gemBalance = 0;
   bool _isLoading = true;
   DatabaseReference? _walletRef;
 
   @override
   void initState() {
     super.initState();
-    _setupGoldListener();
+    _setupGemListener();
   }
 
-  void _setupGoldListener() {
+  void _setupGemListener() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       setState(() => _isLoading = false);
       return;
     }
 
-    // Listen to users/{uid}/wallet/gold
-    _walletRef = FirebaseDatabase.instance.ref('users/$uid/wallet/gold');
+    // Listen to users/{uid}/wallet/gems
+    _walletRef = FirebaseDatabase.instance.ref('users/$uid/wallet/gems');
 
     _walletRef!.onValue.listen((event) {
       if (event.snapshot.value != null) {
         final value = event.snapshot.value;
         setState(() {
-          _goldBalance =
+          _gemBalance =
               (value is int) ? value : ((value is double) ? value.toInt() : 0);
           _isLoading = false;
         });
       } else {
         // If no value exists, default to 0
         setState(() {
-          _goldBalance = 0;
+          _gemBalance = 0;
           _isLoading = false;
         });
       }
     }, onError: (error) {
-      debugPrint('Error reading gold balance: $error');
+      debugPrint('Error reading gem balance: $error');
       setState(() => _isLoading = false);
     });
   }
 
   @override
   void dispose() {
-    // Firebase listener is automatically cleaned up
     super.dispose();
   }
 
-  String _formatGold(int amount) {
+  String _formatNumber(int amount) {
     if (amount >= 1000000) {
       return '${(amount / 1000000).toStringAsFixed(1)}M';
     } else if (amount >= 1000) {
@@ -83,24 +82,24 @@ class _GoldBalanceWidgetState extends State<GoldBalanceWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black54, // Darker pill bg
+        color: Colors.black54,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: Colors.white.withOpacity(0.1), // Glass border
+          color: Colors.white.withOpacity(0.1),
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(
-            Icons.monetization_on,
+            Icons.diamond,
             size: 16,
-            color: AppTheme.gold,
+            color: AppTheme.neonBlue,
           ),
           const SizedBox(width: 6),
           _isLoading
               ? const SizedBox(
-                  width: 40,
+                  width: 30,
                   height: 13,
                   child: Center(
                     child: SizedBox(
@@ -114,13 +113,26 @@ class _GoldBalanceWidgetState extends State<GoldBalanceWidget> {
                   ),
                 )
               : Text(
-                  _formatGold(_goldBalance),
+                  _formatNumber(_gemBalance),
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
                     fontSize: widget.fontSize ?? 13,
                   ),
                 ),
+          // Optional "Add" button if we implement IAP later
+          /*
+           const SizedBox(width: 4),
+           Container(
+             width: 16,
+             height: 16,
+             decoration: const BoxDecoration(
+               color: AppColors.neonBlue, 
+               shape: BoxShape.circle
+             ),
+             child: const Icon(Icons.add, size: 12, color: Colors.white)
+           )
+           */
         ],
       ),
     );

@@ -142,12 +142,20 @@
             }
         },
         "status": {
+            ".read": "auth != null",
             "$uid": {
-                ".read": "auth != null",
                 ".write": "$uid === auth.uid"
             }
         },
         "phoneIndex": {
+            ".read": "false",
+            ".write": "false"
+        },
+        "uploadedContacts": {
+            ".read": "false",
+            ".write": "false"
+        },
+        "contactsGraph": {
             ".read": "false",
             ".write": "false"
         },

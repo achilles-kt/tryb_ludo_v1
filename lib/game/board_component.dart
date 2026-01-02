@@ -39,8 +39,8 @@ class BoardComponent extends PositionComponent with HasGameRef<FlameGame> {
     await super.onLoad();
     anchor = Anchor.center;
     // Fix: Hardcode position to center of the 340x340 world.
-    // Do NOT use gameRef.size, as that changes with screen size and shifts the board.
-    position = Vector2(BoardLayout.boardSize / 2, BoardLayout.boardSize / 2);
+    // Zero-Centered Architecture: The world center is (0,0).
+    position = Vector2.zero();
   }
 
   @override
@@ -207,6 +207,15 @@ class BoardComponent extends PositionComponent with HasGameRef<FlameGame> {
       );
       final rrect = RRect.fromRectAndRadius(
           rect, const Radius.circular(6)); // More rounded
+
+      // Subtle Glow Layer
+      final glowPaint = Paint()
+        ..color = paint.color.withOpacity(paint.color.opacity * 0.6) // Softer
+        ..style = PaintingStyle.fill
+        ..maskFilter =
+            const MaskFilter.blur(BlurStyle.normal, 4.0); // Subtle blur
+
+      canvas.drawRRect(rrect, glowPaint);
       canvas.drawRRect(rrect, paint);
     }
 

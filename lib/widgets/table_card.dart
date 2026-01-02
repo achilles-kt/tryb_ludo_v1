@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+// import 'package:google_fonts/google_fonts.dart'; // Removed unused
+import '../utils/image_utils.dart'; // Added
 import '../theme/app_theme.dart';
-import 'glass_container.dart';
+import 'common/glass_container.dart';
 
 class TableCard extends StatelessWidget {
   final String mode;
@@ -11,8 +13,12 @@ class TableCard extends StatelessWidget {
   final bool isActive;
   final bool isTeam;
 
+  // Dynamic Data
+  final List<String> playerAvatars; // URLs or Asset paths
+  final List<String> playerNames; // For accessibility or future labels
+
   const TableCard({
-    Key? key,
+    super.key,
     required this.mode,
     required this.winText,
     this.entryFee,
@@ -20,7 +26,9 @@ class TableCard extends StatelessWidget {
     this.onTap,
     this.isActive = false,
     this.isTeam = false,
-  }) : super(key: key);
+    this.playerAvatars = const [],
+    this.playerNames = const [],
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +51,7 @@ class TableCard extends StatelessWidget {
           GlassContainer(
             borderRadius: 24,
             padding: const EdgeInsets.all(16),
-            margin: const EdgeInsets.only(bottom: 16, left: 16, right: 16),
+            margin: const EdgeInsets.symmetric(horizontal: 10),
             color: const Color(0xffffffff).withOpacity(0.05), // Light glass
             child: Column(
               children: [
@@ -138,9 +146,9 @@ class TableCard extends StatelessWidget {
 
           // Neon Strip (Left)
           Positioned(
-            left: 16,
+            left: 10,
             top: 0,
-            bottom: 16,
+            bottom: 0,
             width: 4,
             child: Container(
               decoration: const BoxDecoration(
@@ -195,9 +203,16 @@ class TableCard extends StatelessWidget {
   }
 
   Widget _build1v1Avatars() {
+    // 2P Mode: Just show up to 2 avatars.
+    // Index 0: Host / Player 1
+    // Index 1: Opponent / Player 2
+
+    final p1 = playerAvatars.isNotEmpty ? playerAvatars[0] : null;
+    final p2 = playerAvatars.length > 1 ? playerAvatars[1] : null;
+
     return Row(
       children: [
-        _avatar('assets/avatars/a5.png'), // Mock P1
+        _avatar(p1),
         const SizedBox(width: 8),
         const Text("VS",
             style: TextStyle(
@@ -206,15 +221,29 @@ class TableCard extends StatelessWidget {
                 color: Colors.white24,
                 fontSize: 14)),
         const SizedBox(width: 8),
-        isActive
-            ? _avatar('assets/avatars/a3.png')
-            : const SizedBox(), // Empty slot if open
+        // Show P2 if present, or if active (meaning someone is there even if we don't have URL yet?)
+        // If isActive is true, we expect a p2. If p2 is null but active, show placeholder?
+        // Logic: if p2 exists, show it. If not, and not active, show empty slot?
+        // Actually, for "Open" tables, P2 is usually empty.
+        (p2 != null)
+            ? _avatar(p2)
+            : (isActive ? _avatar(null) : const SizedBox()),
       ],
     );
   }
 
   Widget _buildTeamAvatars() {
-    // 2 vs 2 Layout
+    // 4P Team Mode
+    // Team A: Index 0, 1
+    // Team B: Index 2, 3
+
+    // Safely get avatars or null
+    final p1 = playerAvatars.isNotEmpty ? playerAvatars[0] : null;
+    final p2 = playerAvatars.length > 1 ? playerAvatars[1] : null;
+    final p3 =
+        playerAvatars.length > 2 ? playerAvatars[2] : null; // Team B Start
+    final p4 = playerAvatars.length > 3 ? playerAvatars[3] : null;
+
     return Row(
       children: [
         // Team A (Stacked)
@@ -223,8 +252,8 @@ class TableCard extends StatelessWidget {
           height: 36,
           child: Stack(
             children: [
-              _avatar('assets/avatars/a3.png'),
-              Positioned(left: 20, child: _avatar('assets/avatars/a4.png')),
+              _avatar(p1),
+              Positioned(left: 20, child: _avatar(p2)),
             ],
           ),
         ),
@@ -236,32 +265,18 @@ class TableCard extends StatelessWidget {
                 color: Colors.white24,
                 fontSize: 14)),
         const SizedBox(width: 6),
-        // Team B (One joined + One empty/plus)
+        // Team B (Stacked or Partial)
         SizedBox(
           width: 50,
           height: 36,
           child: Stack(
             children: [
-              _avatar('assets/avatars/a5.png'), // P3
-              // P4 Slot (Active or Empty)
-              isActive
-                  ? Positioned(
-                      left: 20, child: _avatar('assets/avatars/a1.png'))
-                  : Positioned(
-                      left: 20,
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: Colors.white30,
-                                style: BorderStyle
-                                    .solid), // Dashed hard in flutter, solid ok
-                            color: Colors.white10),
-                        child: const Icon(Icons.add,
-                            size: 16, color: Colors.white54),
-                      ))
+              _avatar(p3),
+              Positioned(
+                  left: 20,
+                  child: (p4 != null)
+                      ? _avatar(p4)
+                      : (isActive ? _avatar(null) : _addIconPlaceholder()))
             ],
           ),
         ),
@@ -269,14 +284,41 @@ class TableCard extends StatelessWidget {
     );
   }
 
-  Widget _avatar(String path) {
+  Widget _addIconPlaceholder() {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white30, style: BorderStyle.solid),
+          color: Colors.white10),
+      child: const Icon(Icons.add, size: 16, color: Colors.white54),
+    );
+  }
+
+  Widget _avatar(String? path) {
+    ImageProvider img;
+    if (path == null || path.isEmpty) {
+      img = const AssetImage('assets/avatars/a1.png'); // Fallback/Placeholder
+    } else if (path.startsWith('http')) {
+      img = NetworkImage(path);
+    } else {
+      img = ImageUtils.getAvatarProvider(path);
+    }
+
     return Container(
       width: 36, // Slightly larger
       height: 36,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white24, width: 1),
-        image: DecorationImage(image: AssetImage(path), fit: BoxFit.cover),
+        color: Colors.black26, // Background for transparent PNGs
+        image: DecorationImage(
+            image: img,
+            fit: BoxFit.cover,
+            onError: (exception, stackTrace) {
+              // Handle cleanup if needed, usually just fails gracefully
+            }),
       ),
     );
   }
